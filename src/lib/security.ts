@@ -15,6 +15,7 @@ export class HttpError extends Error {
 const SESSION_TTL_SECONDS = 60 * 60 * 4;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_MAX_ATTEMPTS = 8;
+const PBKDF2_ITERATIONS = 100_000;
 
 const toHex = (buffer: ArrayBuffer): string =>
   [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -41,14 +42,14 @@ const derivePasswordKey = async (password: string, salt: Uint8Array): Promise<Cr
 export const hashPassword = async (password: string): Promise<{ hash: string; salt: string }> => {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await derivePasswordKey(password, salt);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: salt.buffer as ArrayBuffer, iterations: 120_000, hash: 'SHA-256' }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: salt.buffer as ArrayBuffer, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' }, key, 256);
   return { hash: toBase64Url(new Uint8Array(bits)), salt: toBase64Url(salt) };
 };
 
 export const verifyPassword = async (password: string, hash: string, encodedSalt: string): Promise<boolean> => {
   const salt = fromBase64Url(encodedSalt);
   const key = await derivePasswordKey(password, salt);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: salt.buffer as ArrayBuffer, iterations: 120_000, hash: 'SHA-256' }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: salt.buffer as ArrayBuffer, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' }, key, 256);
   const actual = toBase64Url(new Uint8Array(bits));
   return actual === hash;
 };
