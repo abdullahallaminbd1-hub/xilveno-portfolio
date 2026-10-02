@@ -20,6 +20,39 @@ const intValue = (body: JsonRecord, key: string, fallback = 0): number => Number
 const boolValue = (body: JsonRecord, key: string, fallback = false): number => body[key] === undefined ? (fallback ? 1 : 0) : ['1', 'true', 'on', 'yes'].includes(String(body[key]).toLowerCase()) ? 1 : 0;
 const validUrl = (value: string): boolean => value === '' || /^https?:\/\/[^\s]+$/i.test(value) || /^\/[A-Za-z0-9_?&=./#-]*$/.test(value);
 const splitJsonList = (value: string): string => JSON.stringify(value.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean));
+const jsonListValue = (body: JsonRecord, key: string): string => {
+  const value = stringValue(body, key);
+  if (!value) return '[]';
+  if (value.startsWith('[')) {
+    try { return JSON.stringify(JSON.parse(value)); } catch { return '[]'; }
+  }
+  return splitJsonList(value);
+};
+const validSlug = (value: string): boolean => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+const mediaDimensions = (bytes: Uint8Array, mime: string): { width: number | null; height: number | null } => {
+  if (mime === 'image/png' && bytes.length >= 24) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset);
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+  if (mime === 'image/webp' && bytes.length >= 30 && String.fromCharCode(...bytes.slice(12, 16)) === 'VP8X') {
+    return { width: 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16), height: 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16) };
+  }
+  if (mime === 'image/svg+xml') {
+    const text = new TextDecoder().decode(bytes.slice(0, 2000));
+    const width = Number(text.match(/\bwidth=["']([0-9.]+)/i)?.[1] || 0);
+    const height = Number(text.match(/\bheight=["']([0-9.]+)/i)?.[1] || 0);
+    return { width: width || null, height: height || null };
+  }
+  if (mime === 'image/jpeg') {
+    for (let offset = 2; offset + 9 < bytes.length;) {
+      if (bytes[offset] !== 0xff) { offset++; continue; }
+      const marker = bytes[offset + 1]; const length = (bytes[offset + 2] << 8) + bytes[offset + 3];
+      if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) return { width: (bytes[offset + 7] << 8) + bytes[offset + 8], height: (bytes[offset + 5] << 8) + bytes[offset + 6] };
+      offset += Math.max(length + 2, 2);
+    }
+  }
+  return { width: null, height: null };
+};
 
 const rateLimitPublicInquiry = async (env: Env, request: Request): Promise<boolean> => {
   const key = `inquiry:${clientKey(request)}`;
@@ -107,15 +140,16 @@ const adminCollection = async (request: Request, env: Env, resource: string): Pr
 const adminProjects = async (request: Request, env: Env): Promise<Response> => {
   const session = await requireSession(request, env);
   if (request.method === 'GET') return jsonResponse(await env.DB.prepare('SELECT p.*, c.name AS category_name FROM projects p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.sort_order ASC, p.updated_at DESC').all());
-  requireCsrf(request, session); const body = await readBody(request); const fields = ['title', 'slug', 'short_description', 'full_description', 'category_id', 'project_type', 'platform', 'role', 'focus', 'status', 'featured', 'live_demo_url', 'case_study_url', 'challenge', 'approach', 'solution', 'key_features_json', 'technologies_json', 'sort_order', 'published'];
+  requireCsrf(request, session); const body = await readBody(request); const fields = ['title', 'slug', 'short_description', 'full_description', 'category_id', 'project_type', 'platform', 'role', 'focus', 'status', 'featured', 'featured_image_id', 'case_study_media_id', 'live_demo_url', 'case_study_url', 'challenge', 'approach', 'solution', 'key_features_json', 'technologies_json', 'sort_order', 'published'];
   const id = intValue(body, 'id');
-  if (request.method === 'DELETE') { if (!id) return jsonResponse({ error: 'id is required.' }, 400); await env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run(); return jsonResponse({ ok: true }); }
+  if (request.method === 'DELETE') { if (!id) return jsonResponse({ error: 'id is required.' }, 400); await env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run(); await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').bind(session.admin_id, 'delete', 'projects', id).run(); return jsonResponse({ ok: true }); }
   if (!stringValue(body, 'title') || !stringValue(body, 'slug')) return jsonResponse({ error: 'Title and slug are required.' }, 400);
+  if (!validSlug(stringValue(body, 'slug'))) return jsonResponse({ error: 'Slug may contain lowercase letters, numbers, and hyphens.' }, 400);
   if (!validUrl(stringValue(body, 'live_demo_url')) || !validUrl(stringValue(body, 'case_study_url'))) return jsonResponse({ error: 'Invalid project URL.' }, 400);
-  const values = fields.map((field) => field === 'category_id' ? (body[field] ? intValue(body, field) : null) : ['featured', 'published'].includes(field) ? boolValue(body, field, field === 'published') : field.endsWith('_json') ? (stringValue(body, field).startsWith('[') ? stringValue(body, field) : splitJsonList(stringValue(body, field))) : field === 'sort_order' ? intValue(body, field) : stringValue(body, field));
-  if (request.method === 'POST') { await env.DB.prepare(`INSERT INTO projects (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`).bind(...values).run(); await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity) VALUES (?, ?, ?)').bind(session.admin_id, 'create', 'projects').run(); return jsonResponse({ ok: true }); }
+  const values = fields.map((field) => ['category_id', 'featured_image_id', 'case_study_media_id'].includes(field) ? (body[field] ? intValue(body, field) : null) : ['featured', 'published'].includes(field) ? boolValue(body, field, field === 'published') : field.endsWith('_json') ? jsonListValue(body, field) : field === 'sort_order' ? intValue(body, field) : stringValue(body, field));
+  if (request.method === 'POST') { const result = await env.DB.prepare(`INSERT INTO projects (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`).bind(...values).run(); const projectId = Number(result.meta.last_row_id || 0); await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').bind(session.admin_id, 'create', 'projects', projectId).run(); return jsonResponse({ ok: true, id: projectId }); }
   if (!id) return jsonResponse({ error: 'id is required.' }, 400);
-  if (request.method === 'PUT' || request.method === 'PATCH') { await env.DB.prepare(`UPDATE projects SET ${fields.map((field) => `${field} = ?`).join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(...values, id).run(); return jsonResponse({ ok: true }); }
+  if (request.method === 'PUT' || request.method === 'PATCH') { await env.DB.prepare(`UPDATE projects SET ${fields.map((field) => `${field} = ?`).join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(...values, id).run(); await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').bind(session.admin_id, 'update', 'projects', id).run(); return jsonResponse({ ok: true, id }); }
   return jsonResponse({ error: 'Method not allowed.' }, 405);
 };
 
@@ -171,7 +205,24 @@ const adminDemos = async (request: Request, env: Env): Promise<Response> => {
 };
 
 const adminSettings = async (request: Request, env: Env): Promise<Response> => {
-  const session = await requireSession(request, env); if (request.method === 'GET') return jsonResponse(await settings(env)); requireCsrf(request, session); const body = await readBody(request); const allowed = ['site_name', 'tagline', 'email', 'phone', 'whatsapp', 'location', 'seo_title', 'seo_home_description', 'default_og_image', 'canonical_base', 'robots_mode', 'privacy_url', 'terms_url', 'social_links']; for (const [key, value] of Object.entries(body)) { if (!allowed.includes(key)) continue; if (['default_og_image', 'canonical_base', 'privacy_url', 'terms_url'].includes(key) && !validUrl(String(value))) return jsonResponse({ error: `Invalid URL for ${key}.` }, 400); await env.DB.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').bind(key, String(value)).run(); } await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity) VALUES (?, ?, ?)').bind(session.admin_id, 'update', 'settings').run(); return jsonResponse({ ok: true });
+  const session = await requireSession(request, env);
+  if (request.method === 'GET') return jsonResponse(await settings(env));
+  requireCsrf(request, session);
+  const body = await readBody(request);
+  const allowed = ['site_name', 'tagline', 'email', 'phone', 'whatsapp', 'location', 'seo_title', 'seo_home_description', 'default_og_image', 'canonical_base', 'robots_mode', 'privacy_url', 'terms_url', 'social_links', 'logo_media_id', 'favicon_media_id', 'about_image_media_id', 'cta_image_media_id', 'hero_image_media_id', 'featured_case_study_id'];
+  const socialKeys = ['facebook', 'instagram', 'linkedin', 'behance', 'dribbble', 'other'];
+  const social = socialKeys.reduce<Record<string, string>>((result, key) => { if (body[key] !== undefined) result[key] = stringValue(body, key); return result; }, {});
+  if (body.social_links !== undefined) {
+    try { Object.assign(social, JSON.parse(stringValue(body, 'social_links'))); } catch { return jsonResponse({ error: 'Social links must be valid JSON.' }, 400); }
+  }
+  const values: Record<string, unknown> = { ...body, ...(Object.keys(social).length ? { social_links: JSON.stringify(social) } : {}) };
+  for (const [key, value] of Object.entries(values)) {
+    if (!allowed.includes(key)) continue;
+    if (['default_og_image', 'canonical_base', 'privacy_url', 'terms_url'].includes(key) && !validUrl(String(value))) return jsonResponse({ error: `Invalid URL for ${key}.` }, 400);
+    await env.DB.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').bind(key, String(value)).run();
+  }
+  await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity) VALUES (?, ?, ?)').bind(session.admin_id, 'update', 'settings').run();
+  return jsonResponse({ ok: true });
 };
 
 const verifyImage = async (bytes: ArrayBuffer, mime: string): Promise<boolean> => { const header = new Uint8Array(bytes).slice(0, 12); if (mime === 'image/png') return header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47; if (mime === 'image/jpeg') return header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff; if (mime === 'image/webp') return String.fromCharCode(...header.slice(0, 4)) === 'RIFF' && String.fromCharCode(...header.slice(8, 12)) === 'WEBP'; if (mime === 'image/svg+xml') return new TextDecoder().decode(bytes.slice(0, 500)).trimStart().startsWith('<svg') || new TextDecoder().decode(bytes.slice(0, 500)).includes('<svg'); return false; };
@@ -179,10 +230,45 @@ const verifyImage = async (bytes: ArrayBuffer, mime: string): Promise<boolean> =
 const adminMedia = async (request: Request, env: Env): Promise<Response> => {
   const session = await requireSession(request, env);
   if (methodIsMutation(request)) requireCsrf(request, session);
-  if (request.method === 'GET') return jsonResponse(await listRows<JsonRecord>(env, 'media', '1 = 1', 'created_at DESC'));
-  if (request.method === 'DELETE') { const body = await readBody(request); const id = intValue(body, 'id'); const media = await env.DB.prepare('SELECT object_key FROM media WHERE id = ?').bind(id).first<{ object_key: string }>(); if (media) { await env.MEDIA.delete(media.object_key); await env.DB.prepare('DELETE FROM media WHERE id = ?').bind(id).run(); } return jsonResponse({ ok: true }); }
-  if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed.' }, 405);
-  const form = await request.formData(); const file = form.get('file'); if (!(file instanceof File)) return jsonResponse({ error: 'Image file is required.' }, 400); if (file.size > 8 * 1024 * 1024) return jsonResponse({ error: 'Image exceeds the 8 MB limit.' }, 400); const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']); if (!allowed.has(file.type)) return jsonResponse({ error: 'Unsupported image type.' }, 400); const bytes = await file.arrayBuffer(); if (!await verifyImage(bytes, file.type)) return jsonResponse({ error: 'Image signature does not match its MIME type.' }, 400); const key = `media/${crypto.randomUUID()}-${file.name.replace(/[^A-Za-z0-9._-]/g, '-').slice(-120)}`; const object = await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' } }); await env.DB.prepare('INSERT INTO media (object_key, filename, mime_type, byte_size, alt_text, etag) VALUES (?, ?, ?, ?, ?, ?)').bind(key, file.name, file.type, file.size, stringValue(Object.fromEntries(form.entries()), 'alt_text'), object?.etag || '').run(); return jsonResponse({ ok: true, key });
+  if (request.method === 'GET') {
+    const query = new URL(request.url).searchParams.get('q') || '';
+    const result = query ? await env.DB.prepare('SELECT * FROM media WHERE filename LIKE ? ORDER BY created_at DESC').bind(`%${query}%`).all() : await env.DB.prepare('SELECT * FROM media ORDER BY created_at DESC').all();
+    return jsonResponse(result.results || []);
+  }
+  if (request.method === 'DELETE') { const body = await readBody(request); const id = intValue(body, 'id'); const media = await env.DB.prepare('SELECT object_key FROM media WHERE id = ?').bind(id).first<{ object_key: string }>(); if (media) { await env.MEDIA.delete(media.object_key); await env.DB.prepare('DELETE FROM media WHERE id = ?').bind(id).run(); await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').bind(session.admin_id, 'delete', 'media', id).run(); } return jsonResponse({ ok: true }); }
+  if (request.method === 'PATCH') { const body = await readBody(request); const id = intValue(body, 'id'); if (!id) return jsonResponse({ error: 'id is required.' }, 400); await env.DB.prepare('UPDATE media SET alt_text = ? WHERE id = ?').bind(stringValue(body, 'alt_text'), id).run(); return jsonResponse({ ok: true }); }
+  if (request.method !== 'POST' && request.method !== 'PUT') return jsonResponse({ error: 'Method not allowed.' }, 405);
+  const form = await request.formData(); const files = form.getAll('files').concat(form.get('file') || []).filter((value): value is File => value instanceof File); if (!files.length) return jsonResponse({ error: 'Image file is required.' }, 400);
+  const replaceId = intValue(Object.fromEntries(form.entries()) as JsonRecord, 'id');
+  const uploaded: JsonRecord[] = [];
+  for (const file of files) {
+    if (file.size > 8 * 1024 * 1024) return jsonResponse({ error: 'Image exceeds the 8 MB limit.' }, 400);
+    const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']); if (!allowed.has(file.type)) return jsonResponse({ error: 'Unsupported image type.' }, 400);
+    const bytes = await file.arrayBuffer(); if (!await verifyImage(bytes, file.type)) return jsonResponse({ error: 'Image signature does not match its MIME type.' }, 400);
+    const key = `media/${crypto.randomUUID()}-${file.name.replace(/[^A-Za-z0-9._-]/g, '-').slice(-120)}`; const object = await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' } }); const dimensions = mediaDimensions(new Uint8Array(bytes), file.type);
+    if (request.method === 'PUT' && replaceId) { const old = await env.DB.prepare('SELECT object_key FROM media WHERE id = ?').bind(replaceId).first<{ object_key: string }>(); if (old) await env.MEDIA.delete(old.object_key); await env.DB.prepare('UPDATE media SET object_key = ?, filename = ?, mime_type = ?, byte_size = ?, width = ?, height = ?, alt_text = ?, etag = ? WHERE id = ?').bind(key, file.name, file.type, file.size, dimensions.width, dimensions.height, stringValue(Object.fromEntries(form.entries()) as JsonRecord, 'alt_text'), object?.etag || '', replaceId).run(); uploaded.push({ id: replaceId, key }); } else { const result = await env.DB.prepare('INSERT INTO media (object_key, filename, mime_type, byte_size, width, height, alt_text, etag) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(key, file.name, file.type, file.size, dimensions.width, dimensions.height, stringValue(Object.fromEntries(form.entries()) as JsonRecord, 'alt_text'), object?.etag || '').run(); uploaded.push({ id: Number(result.meta.last_row_id || 0), key }); }
+  }
+  return jsonResponse({ ok: true, media: uploaded });
+};
+
+const adminProjectGallery = async (request: Request, env: Env): Promise<Response> => {
+  const session = await requireSession(request, env);
+  const body = request.method === 'GET' ? null : await readBody(request);
+  const projectId = intValue(body || Object.fromEntries(new URL(request.url).searchParams.entries()) as JsonRecord, 'project_id');
+  if (!projectId) return jsonResponse({ error: 'project_id is required.' }, 400);
+  if (request.method === 'GET') {
+    const rows = await env.DB.prepare('SELECT m.*, pg.sort_order FROM project_gallery pg JOIN media m ON m.id = pg.media_id WHERE pg.project_id = ? ORDER BY pg.sort_order ASC, m.id ASC').bind(projectId).all();
+    return jsonResponse(rows.results || []);
+  }
+  requireCsrf(request, session);
+  if (request.method === 'PUT' || request.method === 'POST') {
+    const mediaIds = Array.isArray(body?.media_ids) ? body?.media_ids.map((value) => Number(value)).filter(Boolean) : [];
+    await env.DB.prepare('DELETE FROM project_gallery WHERE project_id = ?').bind(projectId).run();
+    for (const [index, mediaId] of mediaIds.entries()) await env.DB.prepare('INSERT INTO project_gallery (project_id, media_id, sort_order) VALUES (?, ?, ?)').bind(projectId, mediaId, index).run();
+    await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').bind(session.admin_id, 'update', 'project_gallery', projectId).run();
+    return jsonResponse({ ok: true });
+  }
+  return jsonResponse({ error: 'Method not allowed.' }, 405);
 };
 
 const mediaObject = async (request: Request, env: Env, key: string): Promise<Response> => { const object = await env.MEDIA.get(decodeURIComponent(key)); if (!object) return textResponse('Not found', 404); const headers = new Headers(); object.writeHttpMetadata(headers); headers.set('etag', object.httpEtag); headers.set('Cache-Control', 'public, max-age=31536000, immutable'); return new Response(object.body, { headers }); };
@@ -194,7 +280,7 @@ const adminPage = (pathname: string): Response => {
   return textResponse(html, 200, { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' });
 };
 
-const ADMIN_CSS = `:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f7f8fc}*{box-sizing:border-box}body{margin:0}.admin-shell{max-width:1320px;margin:0 auto;padding:24px}.admin-card{background:#fff;border:1px solid #e4e9f2;border-radius:14px;padding:24px;box-shadow:0 8px 28px rgba(11,18,32,.06)}.admin-login{max-width:460px;margin:12vh auto}.admin-layout{display:grid;grid-template-columns:230px 1fr;gap:24px}.admin-sidebar{background:#070c18;color:#cbd5e8;border-radius:14px;padding:20px;height:max-content;position:sticky;top:24px}.admin-sidebar h1{color:#fff;font-size:20px;margin:0 0 24px}.admin-sidebar a,.admin-sidebar button{display:block;width:100%;padding:10px 12px;border:0;background:none;color:#cbd5e8;text-align:left;text-decoration:none;border-radius:8px;cursor:pointer;font:inherit}.admin-sidebar a:hover,.admin-sidebar button:hover{background:rgba(255,255,255,.08);color:#fff}.admin-main{min-width:0}.admin-top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:20px}.admin-top h2{margin:0}.admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}.admin-stat strong{display:block;font-size:32px;color:#0b1220}.admin-stat span{color:#6b7690;font-size:14px}.admin-form{display:grid;gap:14px}.admin-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.admin-label{display:grid;gap:6px;font-weight:600;font-size:14px}.admin-input,.admin-textarea,.admin-select{width:100%;border:1px solid #d3dae8;border-radius:8px;padding:10px 12px;font:inherit;color:#172033;background:#fff}.admin-textarea{min-height:130px;resize:vertical}.admin-button{border:0;border-radius:8px;padding:10px 14px;background:#2563eb;color:#fff;font:inherit;font-weight:700;cursor:pointer}.admin-button.secondary{background:#fff;color:#172033;border:1px solid #d3dae8}.admin-button.danger{background:#dc2626}.admin-table{width:100%;border-collapse:collapse}.admin-table th,.admin-table td{text-align:left;padding:12px 8px;border-bottom:1px solid #e4e9f2;vertical-align:top}.admin-message{padding:12px;border-radius:8px;background:#eef2f9;margin-bottom:16px}.admin-error{background:#fef2f2;color:#991b1b}.admin-success{background:#f0fdf4;color:#166534}@media(max-width:800px){.admin-layout{grid-template-columns:1fr}.admin-sidebar{position:static}.admin-row{grid-template-columns:1fr}}`;
+const ADMIN_CSS = `:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f7f8fc}*{box-sizing:border-box}body{margin:0}.admin-shell{max-width:1320px;margin:0 auto;padding:24px}.admin-card{background:#fff;border:1px solid #e4e9f2;border-radius:14px;padding:24px;box-shadow:0 8px 28px rgba(11,18,32,.06)}.admin-login{max-width:460px;margin:12vh auto}.admin-layout{display:grid;grid-template-columns:230px 1fr;gap:24px}.admin-sidebar{background:#070c18;color:#cbd5e8;border-radius:14px;padding:20px;height:max-content;position:sticky;top:24px}.admin-sidebar h1{color:#fff;font-size:20px;margin:0 0 24px}.admin-sidebar a,.admin-sidebar button{display:block;width:100%;padding:10px 12px;border:0;background:none;color:#cbd5e8;text-align:left;text-decoration:none;border-radius:8px;cursor:pointer;font:inherit}.admin-sidebar a:hover,.admin-sidebar button:hover{background:rgba(255,255,255,.08);color:#fff}.admin-main{min-width:0}.admin-top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:20px}.admin-top h2{margin:0}.admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}.admin-stat strong{display:block;font-size:32px;color:#0b1220}.admin-stat span{color:#6b7690;font-size:14px}.admin-form{display:grid;gap:14px}.admin-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.admin-label{display:grid;gap:6px;font-weight:600;font-size:14px}.admin-input,.admin-textarea,.admin-select{width:100%;border:1px solid #d3dae8;border-radius:8px;padding:10px 12px;font:inherit;color:#172033;background:#fff}.admin-textarea{min-height:130px;resize:vertical}.admin-button{border:0;border-radius:8px;padding:10px 14px;background:#2563eb;color:#fff;font:inherit;font-weight:700;cursor:pointer}.admin-button.secondary{background:#fff;color:#172033;border:1px solid #d3dae8}.admin-button.danger{background:#dc2626}.admin-table{width:100%;border-collapse:collapse}.admin-table th,.admin-table td{text-align:left;padding:12px 8px;border-bottom:1px solid #e4e9f2;vertical-align:top}.admin-message{padding:12px;border-radius:8px;background:#eef2f9;margin-bottom:16px}.admin-error{background:#fef2f2;color:#991b1b}.admin-success{background:#f0fdf4;color:#166534}.admin-hint{color:#6b7690;font-size:13px;font-weight:400}.admin-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0 0}.admin-check{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14px}.admin-check input{width:18px;height:18px;accent-color:#2563eb}.admin-sidebar a[aria-current="page"]{background:#2563eb;color:#fff}.admin-repeater{gap:12px}.admin-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}.admin-media-card{background:#fff;border:1px solid #e4e9f2;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 28px rgba(11,18,32,.06)}.admin-media-card>img{width:100%;height:130px;object-fit:cover;background:#eef2f9;display:block}.admin-media-card .admin-media-body{padding:12px;display:grid;gap:8px;font-size:13px}.admin-media-card .admin-actions{flex-wrap:wrap}.admin-media-card .admin-button{padding:7px 10px;font-size:12px}.admin-picker{display:grid;gap:8px}.admin-picker-preview{min-height:70px;border:1px dashed #d3dae8;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#f7f8fc}.admin-picker-preview img{max-width:100%;max-height:150px;object-fit:contain}.admin-picker-actions{display:flex;gap:8px;flex-wrap:wrap}.admin-picker-actions .admin-button{padding:7px 10px;font-size:12px}.admin-modal{position:fixed;inset:0;background:rgba(7,12,24,.6);display:flex;align-items:center;justify-content:center;padding:24px;z-index:50}.admin-modal__panel{background:#fff;border-radius:14px;padding:20px;max-width:920px;width:100%;max-height:80vh;overflow:auto}.admin-modal__head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}@media(max-width:800px){.admin-layout{grid-template-columns:1fr}.admin-sidebar{position:static}.admin-row{grid-template-columns:1fr}.admin-media-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}`;
 
 const handleApi = async (request: Request, env: Env, pathname: string): Promise<Response> => {
   if (pathname === '/api/inquiries') return handleInquiry(request, env);
@@ -207,6 +293,7 @@ const handleApi = async (request: Request, env: Env, pathname: string): Promise<
   if (pathname === '/api/admin/inquiries') return adminInquiries(request, env);
   if (pathname === '/api/admin/demos') return adminDemos(request, env);
   if (pathname.startsWith('/api/admin/media')) return adminMedia(request, env);
+  if (pathname === '/api/admin/project-gallery') return adminProjectGallery(request, env);
   const collectionMatch = pathname.match(/^\/api\/admin\/(services|faqs|process|skills|categories)$/); if (collectionMatch) return adminCollection(request, env, collectionMatch[1]);
   if (pathname === '/api/admin/home') { const session = await requireSession(request, env); if (request.method === 'GET') { const keys = ['hero', 'services_heading', 'problems_heading', 'work_heading', 'process_heading', 'skills_heading', 'faq_heading', 'cta', 'about']; const result: Record<string, unknown> = {}; for (const key of keys) result[key] = await section(env, key, {}); return jsonResponse(result); } requireCsrf(request, session); const body = await readBody(request); for (const [key, value] of Object.entries(body)) if (['hero', 'services_heading', 'problems_heading', 'work_heading', 'process_heading', 'skills_heading', 'faq_heading', 'cta', 'about'].includes(key)) await env.DB.prepare('INSERT OR REPLACE INTO home_sections (section_key, content_json, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').bind(key, typeof value === 'string' ? value : JSON.stringify(value)).run(); return jsonResponse({ ok: true }); }
   return jsonResponse({ error: 'Not found.' }, 404);

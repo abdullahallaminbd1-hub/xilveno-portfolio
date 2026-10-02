@@ -14,7 +14,7 @@ export interface PageRow { slug: string; title: string; excerpt: string; body: s
 export interface ProjectRow {
   id: number; title: string; slug: string; short_description: string; full_description: string;
   category_id: number | null; category_name?: string; project_type: string; platform: string;
-  role: string; focus: string; status: string; featured: number; featured_image_id: number | null;
+  role: string; focus: string; status: string; featured: number; featured_image_id: number | null; case_study_media_id?: number | null;
   live_demo_url: string; case_study_url: string; challenge: string; approach: string; solution: string;
   key_features_json: string; technologies_json: string; sort_order: number; published: number;
 }

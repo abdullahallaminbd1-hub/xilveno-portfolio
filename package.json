@@ -11,6 +11,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply xilveno-portfolio-db --remote",
     "db:inspect:local": "wrangler d1 execute xilveno-portfolio-db --local --command=\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\"",
     "db:inspect:remote": "wrangler d1 execute xilveno-portfolio-db --remote --command=\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\"",
+    "admin:reset-remote-password": "node scripts/reset-remote-admin-password.mjs",
     "deploy": "wrangler deploy",
     "format:check": "tsc --noEmit"
   },
