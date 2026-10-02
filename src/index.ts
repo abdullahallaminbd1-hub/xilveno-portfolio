@@ -108,12 +108,13 @@ const adminProjects = async (request: Request, env: Env): Promise<Response> => {
   const session = await requireSession(request, env);
   if (request.method === 'GET') return jsonResponse(await env.DB.prepare('SELECT p.*, c.name AS category_name FROM projects p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.sort_order ASC, p.updated_at DESC').all());
   requireCsrf(request, session); const body = await readBody(request); const fields = ['title', 'slug', 'short_description', 'full_description', 'category_id', 'project_type', 'platform', 'role', 'focus', 'status', 'featured', 'live_demo_url', 'case_study_url', 'challenge', 'approach', 'solution', 'key_features_json', 'technologies_json', 'sort_order', 'published'];
+  const id = intValue(body, 'id');
+  if (request.method === 'DELETE') { if (!id) return jsonResponse({ error: 'id is required.' }, 400); await env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run(); return jsonResponse({ ok: true }); }
   if (!stringValue(body, 'title') || !stringValue(body, 'slug')) return jsonResponse({ error: 'Title and slug are required.' }, 400);
   if (!validUrl(stringValue(body, 'live_demo_url')) || !validUrl(stringValue(body, 'case_study_url'))) return jsonResponse({ error: 'Invalid project URL.' }, 400);
   const values = fields.map((field) => field === 'category_id' ? (body[field] ? intValue(body, field) : null) : ['featured', 'published'].includes(field) ? boolValue(body, field, field === 'published') : field.endsWith('_json') ? (stringValue(body, field).startsWith('[') ? stringValue(body, field) : splitJsonList(stringValue(body, field))) : field === 'sort_order' ? intValue(body, field) : stringValue(body, field));
   if (request.method === 'POST') { await env.DB.prepare(`INSERT INTO projects (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`).bind(...values).run(); await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity) VALUES (?, ?, ?)').bind(session.admin_id, 'create', 'projects').run(); return jsonResponse({ ok: true }); }
-  const id = intValue(body, 'id'); if (!id) return jsonResponse({ error: 'id is required.' }, 400);
-  if (request.method === 'DELETE') { await env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run(); return jsonResponse({ ok: true }); }
+  if (!id) return jsonResponse({ error: 'id is required.' }, 400);
   if (request.method === 'PUT' || request.method === 'PATCH') { await env.DB.prepare(`UPDATE projects SET ${fields.map((field) => `${field} = ?`).join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(...values, id).run(); return jsonResponse({ ok: true }); }
   return jsonResponse({ error: 'Method not allowed.' }, 405);
 };
