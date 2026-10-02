@@ -11,7 +11,7 @@ run_worker_first = ["/api/*", "/admin/*", "/media/*", "/work/*", "/about/*", "/s
 [[d1_databases]]
 binding = "DB"
 database_name = "xilveno-portfolio-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "107fee70-12e9-417e-b0d1-0a0139b631f9"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
