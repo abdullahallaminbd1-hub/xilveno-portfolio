@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 850" role="img" aria-labelledby="title desc">
+  <title id="title">BrightSmile Dental services screen</title>
+  <desc id="desc">Three service cards for preventive, restorative and cosmetic dental care.</desc>
+  <rect width="1200" height="850" fill="#f4fbfc"/>
+  <rect x="70" y="62" width="1060" height="726" rx="28" fill="#fff" stroke="#dbe9ee" stroke-width="3"/>
+  <circle cx="132" cy="116" r="18" fill="#2aa9a0"/>
+  <path d="M125 116h14M132 109v14" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  <text x="164" y="124" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#10233e">BrightSmile</text>
+  <text x="110" y="225" font-family="Arial,sans-serif" font-size="18" font-weight="700" fill="#168b8b">SERVICES</text>
+  <text x="110" y="282" font-family="Arial,sans-serif" font-size="46" font-weight="700" fill="#10233e">Care that fits your life.</text>
+  <text x="110" y="326" font-family="Arial,sans-serif" font-size="18" fill="#52657d">Clear options and friendly explanations at every step.</text>
+  <g>
+    <rect x="110" y="390" width="300" height="260" rx="22" fill="#e8f8f7"/>
+    <circle cx="168" cy="452" r="28" fill="#167f85"/>
+    <path d="M155 452h26M168 439v26" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <text x="145" y="530" font-family="Arial,sans-serif" font-size="22" font-weight="700" fill="#10233e">Preventive care</text>
+    <text x="145" y="565" font-family="Arial,sans-serif" font-size="16" fill="#52657d">Keep small concerns</text>
+    <text x="145" y="590" font-family="Arial,sans-serif" font-size="16" fill="#52657d">from becoming big ones.</text>
+  </g>
+  <g>
+    <rect x="450" y="390" width="300" height="260" rx="22" fill="#eff4ff"/>
+    <circle cx="508" cy="452" r="28" fill="#3974d8"/>
+    <path d="M495 452h26M508 439v26" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <text x="485" y="530" font-family="Arial,sans-serif" font-size="22" font-weight="700" fill="#10233e">Restorative care</text>
+    <text x="485" y="565" font-family="Arial,sans-serif" font-size="16" fill="#52657d">Comfortable treatment</text>
+    <text x="485" y="590" font-family="Arial,sans-serif" font-size="16" fill="#52657d">with a clear plan.</text>
+  </g>
+  <g>
+    <rect x="790" y="390" width="300" height="260" rx="22" fill="#fff6e9"/>
+    <circle cx="848" cy="452" r="28" fill="#d58a31"/>
+    <path d="M835 452h26M848 439v26" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <text x="825" y="530" font-family="Arial,sans-serif" font-size="22" font-weight="700" fill="#10233e">Cosmetic care</text>
+    <text x="825" y="565" font-family="Arial,sans-serif" font-size="16" fill="#52657d">Small changes that</text>
+    <text x="825" y="590" font-family="Arial,sans-serif" font-size="16" fill="#52657d">help you feel confident.</text>
+  </g>
+</svg>

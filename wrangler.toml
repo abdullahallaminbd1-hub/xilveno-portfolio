@@ -1,0 +1,28 @@
+name = "xilveno-portfolio"
+main = "src/index.ts"
+compatibility_date = "2026-10-02"
+
+[assets]
+directory = "./src/public"
+binding = "ASSETS"
+not_found_handling = "404-page"
+run_worker_first = ["/api/*", "/admin/*", "/media/*", "/work/*", "/about/*", "/services/*", "/process/*", "/faq/*", "/contact/*", "/search*", "/sitemap.xml", "/robots.txt"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "xilveno-portfolio-db"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "xilveno-portfolio-media"
+
+[observability]
+enabled = true
+
+# Production secrets are created with Wrangler, never committed:
+# wrangler secret put ADMIN_BOOTSTRAP_PASSWORD
+# wrangler secret put SESSION_SECRET
+# wrangler secret put EMAIL_API_KEY
+# wrangler secret put CLOUDFLARE_API_TOKEN

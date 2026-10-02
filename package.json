@@ -1,0 +1,21 @@
+{
+  "name": "xilveno-portfolio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply xilveno-portfolio-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply xilveno-portfolio-db --remote",
+    "db:inspect:local": "wrangler d1 execute xilveno-portfolio-db --local --command=\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\"",
+    "db:inspect:remote": "wrangler d1 execute xilveno-portfolio-db --remote --command=\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\"",
+    "deploy": "wrangler deploy",
+    "format:check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "wrangler": "^4.147.0"
+  }
+}

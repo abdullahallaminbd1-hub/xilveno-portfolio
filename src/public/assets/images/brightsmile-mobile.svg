@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 900" role="img" aria-labelledby="title desc">
+  <title id="title">BrightSmile Dental mobile appointment screen</title>
+  <desc id="desc">A mobile appointment request interface with simple date and contact fields.</desc>
+  <rect width="900" height="900" fill="#10233e"/>
+  <rect x="250" y="58" width="400" height="784" rx="50" fill="#f8fcff" stroke="#c9e3e8" stroke-width="8"/>
+  <rect x="280" y="100" width="340" height="28" rx="14" fill="#dbe9ee"/>
+  <circle cx="335" cy="182" r="28" fill="#2aa9a0"/>
+  <path d="M326 182h18M335 173v18" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  <text x="378" y="190" font-family="Arial,sans-serif" font-size="22" font-weight="700" fill="#10233e">BrightSmile</text>
+  <text x="294" y="278" font-family="Arial,sans-serif" font-size="18" font-weight="700" fill="#168b8b">REQUEST A VISIT</text>
+  <text x="294" y="325" font-family="Arial,sans-serif" font-size="31" font-weight="700" fill="#10233e">Let’s find a time.</text>
+  <text x="294" y="363" font-family="Arial,sans-serif" font-size="15" fill="#52657d">No pressure — we’ll reply with the next step.</text>
+  <text x="294" y="428" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#52657d">YOUR NAME</text>
+  <rect x="294" y="445" width="312" height="50" rx="12" fill="#fff" stroke="#c9dce5" stroke-width="2"/>
+  <text x="314" y="477" font-family="Arial,sans-serif" font-size="15" fill="#9aaabd">Alex Morgan</text>
+  <text x="294" y="542" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#52657d">PREFERRED DAY</text>
+  <rect x="294" y="559" width="312" height="50" rx="12" fill="#fff" stroke="#c9dce5" stroke-width="2"/>
+  <text x="314" y="591" font-family="Arial,sans-serif" font-size="15" fill="#52657d">Choose a date</text>
+  <path d="M576 578l9 9 9-9" fill="none" stroke="#167f85" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="294" y="668" width="312" height="54" rx="27" fill="#167f85"/>
+  <text x="380" y="702" font-family="Arial,sans-serif" font-size="16" font-weight="700" fill="#fff">Send request</text>
+  <text x="290" y="770" font-family="Arial,sans-serif" font-size="14" fill="#6b8195">We’ll keep your information private.</text>
+</svg>

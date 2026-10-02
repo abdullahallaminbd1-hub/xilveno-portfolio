@@ -1,0 +1,17 @@
+node_modules/
+.wrangler/
+dist/
+.dev.vars
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+coverage/
+playwright-report/
+test-results/
+*.log
+*.pid
+*.png
+.chrome-profile/
