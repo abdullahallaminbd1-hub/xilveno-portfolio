@@ -10,13 +10,31 @@
  *   node scripts/qa-admin-responsive.mjs --url=... --state=session.json --channel=chrome
  */
 import { chromium } from 'playwright';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const arg = (name, fallback = '') => {
   const found = process.argv.find((item) => item.startsWith(`--${name}=`));
-  return found ? found.slice(name.length + 3) : fallback;
+  if (found) return found.slice(name.length + 3);
+  const envName = `QA_${name.toUpperCase()}`;
+  if (process.env[envName] !== undefined) return process.env[envName];
+  return fallback;
 };
+// Precedence: --password, then --password-file, then QA_PASSWORD_FILE, then
+// QA_PASSWORD. The CLI flags win so an inherited env var from another run (for
+// example a local test password) can never shadow them.
+const explicitPassword = (() => {
+  const found = process.argv.find((item) => item.startsWith('--password='));
+  return found === undefined ? '' : found.slice(11);
+})();
+const password = (() => {
+  if (explicitPassword) return explicitPassword;
+  const file = arg('password-file', '');
+  if (file && existsSync(file)) return readFileSync(file, 'utf8').trim();
+  const envFile = process.env.QA_PASSWORD_FILE || '';
+  if (envFile && existsSync(envFile)) return readFileSync(envFile, 'utf8').trim();
+  return process.env.QA_PASSWORD || '';
+})();
 const baseUrl = arg('url', 'http://127.0.0.1:8790').replace(/\/+$/, '');
 const outDir = path.resolve(arg('out', '.qa-admin-responsive'));
 const label = arg('label', 'responsive');
@@ -52,10 +70,11 @@ const run = async () => {
       ...(arg('state') && existsSync(arg('state')) ? { storageState: arg('state') } : {}),
     });
     const page = await context.newPage();
-    if (arg('password')) {
+    // Each viewport logs in for itself: a session cookie is bound to one context.
+    if (password) {
       await page.goto(`${baseUrl}/admin/login`, { waitUntil: 'domcontentloaded' });
       await page.fill('#login-form input[name="email"]', arg('email', 'admin@xilveno.shop'));
-      await page.fill('#login-form input[name="password"]', arg('password'));
+      await page.fill('#login-form input[name="password"]', password);
       await Promise.all([page.waitForURL('**/admin/dashboard'), page.click('#login-form button[type="submit"]')]);
       check(`${viewport.name} login`, page.url().includes('/admin/dashboard'));
     }

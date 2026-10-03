@@ -10,16 +10,36 @@
  *   node scripts/qa-admin-workflows.mjs --url=... --password=... [--channel=chrome]
  */
 import { chromium } from 'playwright';
-import { mkdirSync, existsSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const arg = (name, fallback = '') => {
   const found = process.argv.find((item) => item.startsWith(`--${name}=`));
-  return found ? found.slice(name.length + 3) : fallback;
+  if (found) return found.slice(name.length + 3);
+  // Environment fallbacks keep secrets (and the password file path) out of the
+  // process argument list, which is readable by other processes.
+  const envName = `QA_${name.toUpperCase()}`;
+  if (process.env[envName] !== undefined) return process.env[envName];
+  return fallback;
 };
 const baseUrl = arg('url', 'http://127.0.0.1:8790').replace(/\/+$/, '');
 const email = arg('email', 'admin@xilveno.shop');
-const password = arg('password', '');
+const explicitPassword = (() => {
+  const found = process.argv.find((item) => item.startsWith('--password='));
+  return found === undefined ? '' : found.slice(11);
+})();
+const password = (() => {
+  // Precedence: --password, then --password-file, then QA_PASSWORD_FILE, then
+  // QA_PASSWORD. The CLI flags win so an inherited env var from another run
+  // (for example a local test password) can never shadow them.
+  if (explicitPassword) return explicitPassword;
+  const file = arg('password-file', '');
+  if (file && existsSync(file)) return readFileSync(file, 'utf8').trim();
+  const envFile = process.env.QA_PASSWORD_FILE || '';
+  if (envFile && existsSync(envFile)) return readFileSync(envFile, 'utf8').trim();
+  return process.env.QA_PASSWORD || '';
+})();
 const outDir = path.resolve(arg('out', '.qa-admin-flows'));
 const label = arg('label', 'flow');
 mkdirSync(outDir, { recursive: true });
@@ -30,6 +50,34 @@ const PIXEL_PNG = Buffer.from(
 );
 const stamp = Date.now();
 const results = [];
+
+/** Queries the local D1 for records the QA runs should have removed. */
+const auditLocalLeftovers = async () => {
+  const tables = [
+    ['projects', 'title'], ['services', 'title'], ['process_steps', 'title'],
+    ['skills', 'title'], ['problems', 'title'], ['faqs', 'question'],
+    ['categories', 'name'], ['demos', 'name'], ['pages', 'title'],
+    ['inquiries', 'name'], ['media', 'filename'], ['settings', 'value'],
+  ];
+  const found = [];
+  for (const [table, column] of tables) {
+    const sql = `SELECT COUNT(*) AS n FROM ${table} WHERE ${column} LIKE 'QA %' OR ${column} LIKE '%qa-%'`;
+    // Run wrangler through node directly: the npx shim needs a shell on
+    // Windows, and shelling out with interpolated SQL is not worth the risk.
+    const args = [
+      path.resolve('node_modules/wrangler/bin/wrangler.js'),
+      'd1', 'execute', 'xilveno-portfolio-db', '--local', '--command', sql, '--json',
+    ];
+    let stdout = '';
+    try {
+      stdout = execFileSync(process.execPath, args, { encoding: 'utf8' });
+    } catch (error) { stdout = String(error.stdout || ''); }
+    const count = Number((stdout.match(/"n"\s*:\s*(\d+)/) || [])[1]);
+    if (Number.isFinite(count) && count > 0) found.push(`${table}=${count}`);
+  }
+  console.log(found.length ? `> local D1 still holds QA records: ${found.join(', ')}` : '> local D1 holds no QA leftovers');
+};
+
 const check = (name, ok, detail = '') => {
   results.push({ name, ok });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  (${detail})` : ''}`);
@@ -49,7 +97,10 @@ const titleText = async (page) => (await page.locator('.admin-top__text h2').inn
 const toast = (page, text) => page.waitForSelector(`.admin-toast:has-text("${text}")`, { timeout: 12000 }).catch(() => null);
 const nav = async (page, href) => {
   await page.goto(`${baseUrl}${href}`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(400);
+  // The panel renders after /api/admin/session resolves, so wait for the chrome
+  // before counting anything. Production is slower than the local dev server.
+  await page.waitForSelector('#admin-sidebar', { timeout: 20000 }).catch(() => null);
+  await page.waitForTimeout(500);
 };
 const uploadVia = async (page, clickSelector, files) => {
   const [chooser] = await Promise.all([
@@ -85,7 +136,15 @@ const run = async () => {
     await page.goto(`${baseUrl}/admin/login`, { waitUntil: 'domcontentloaded' });
     await page.fill('#login-form input[name="email"]', email);
     await page.fill('#login-form input[name="password"]', password);
-    await Promise.all([page.waitForURL('**/admin/dashboard', { timeout: 30000 }), page.click('#login-form button[type="submit"]')]);
+    try {
+      await Promise.all([page.waitForURL('**/admin/dashboard', { timeout: 30000 }), page.click('#login-form button[type="submit"]')]);
+    } catch (error) {
+      // Surface why the redirect never happened instead of a bare timeout.
+      const notice = await page.locator('[data-notice], .admin-notice, .login-error').first().textContent().catch(() => '');
+      console.log(`login failed at ${baseUrl}: ${page.url()}`);
+      console.log(`  password length: ${password.length}, notice: ${(notice || '').trim() || '(none)'}`);
+      throw error;
+    }
     check('login', page.url().includes('/admin/dashboard'), await titleText(page));
     if (arg('state')) writeFileSync(arg('state'), JSON.stringify(await context.storageState()));
   }
@@ -131,6 +190,7 @@ const run = async () => {
   }
   /* --------------------------------------------- visual homepage editor */
   await nav(page, '/admin/home');
+  await page.waitForSelector('[data-section-list] [data-select]', { timeout: 15000 }).catch(() => null);
   const railCount = await page.locator('[data-section-list] [data-select]').count();
   check('homepage section list', railCount === 10, `${railCount} sections`);
   for (const id of ['hero', 'tech-stack', 'services', 'work', 'featured', 'problems', 'process', 'skills', 'faq', 'cta']) {
@@ -180,8 +240,19 @@ const run = async () => {
   check('hero heading restored', plain(restoredHeading) === plain(originalHero), restoredHeading);
   await page.fill(heroTitleField, 'temporary change');
   await page.click('[data-home-form] [data-cancel]');
-  await page.waitForTimeout(900);
-  const afterCancel = (await page.inputValue(heroTitleField)).trim();
+  // Cancel re-fetches the saved section, so wait for the field to be repainted
+  // rather than guessing how long a production round trip takes.
+  const afterCancel = await page
+    .waitForFunction(
+      (expected) => {
+        const field = document.querySelector('[data-home-form] [name="title"]');
+        return field && field.value.trim() === expected;
+      },
+      originalHero,
+      { timeout: 20000 },
+    )
+    .then(() => originalHero)
+    .catch(() => page.inputValue(heroTitleField).then((value) => value.trim()));
   check('"Cancel" discards unsaved hero edits', afterCancel === originalHero, afterCancel);
   await publicPage.close();
   /* -------------------------------------------------------- media library */
@@ -509,28 +580,40 @@ const run = async () => {
     data: { name: 'QA', email: 'qa@example.com', message: 'This is a QA probe that should be rejected.', started_at: 1, csrf_token: 'invalid' },
   });
   check('public inquiry rejects a bad form token', inquiryProbe.status() === 403, String(inquiryProbe.status()));
+  // Capture the live site name BEFORE the probe writes to it, otherwise the
+  // restore below would put the probe value back.
+  const siteNameField = '[data-settings-form="branding"] [name="site_name"]';
+  await page.goto(`${baseUrl}/admin/settings`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector(siteNameField, { timeout: 20000 }).catch(() => null);
+  const originalSiteName = (await page.inputValue(siteNameField)).trim();
   const csrf = await page.evaluate(async () => {
-      const response = await fetch('/api/admin/session', { credentials: 'same-origin' });
-      return (await response.json()).csrfToken;
-    });
-    const badToken = await context.request.put(`${baseUrl}/api/admin/settings`, {
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': `${csrf}x` },
-      data: { site_name: 'CSRF probe' },
-    });
-    check('mutation with a wrong CSRF token rejected', badToken.status() === 403, String(badToken.status()));
-    const goodToken = await context.request.put(`${baseUrl}/api/admin/settings`, {
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-      data: { site_name: 'QA csrf probe' },
-    });
-    check('mutation with the session CSRF token accepted', goodToken.ok, String(goodToken.status()));
-    await page.goto(`${baseUrl}/admin/settings`, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(600);
-    const siteNameField = '[data-settings-form="branding"] [name="site_name"]';
-    const originalSiteName = await page.inputValue(siteNameField);
-    await page.fill(siteNameField, originalSiteName);
-    await page.click('[data-settings-form="branding"] button[type="submit"]');
-    await toast(page, 'saved');
-    check('site name restored after the CSRF probe', (await page.inputValue(siteNameField)) === originalSiteName, originalSiteName);
+    const response = await fetch('/api/admin/session', { credentials: 'same-origin' });
+    return (await response.json()).csrfToken;
+  });
+  const badToken = await context.request.put(`${baseUrl}/api/admin/settings`, {
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': `${csrf}x` },
+    data: { site_name: 'CSRF probe' },
+  });
+  check('mutation with a wrong CSRF token rejected', badToken.status() === 403, String(badToken.status()));
+  const goodToken = await context.request.put(`${baseUrl}/api/admin/settings`, {
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    data: { site_name: 'QA csrf probe' },
+  });
+  check('mutation with the session CSRF token accepted', goodToken.ok, String(goodToken.status()));
+  // Put the real site name back through the UI so the public header and footer
+  // are never left showing the probe value.
+  await page.fill(siteNameField, originalSiteName);
+  await page.click('[data-settings-form="branding"] button[type="submit"]');
+  await toast(page, 'saved');
+  await page.waitForTimeout(700);
+  const restored = await page.evaluate(async (expected) => {
+    const response = await fetch('/api/admin/settings', { credentials: 'same-origin' });
+    const body = await response.json();
+    // The endpoint returns the settings map at the top level.
+    const name = body.site_name ?? (body.settings || {}).site_name;
+    return name === expected;
+  }, originalSiteName);
+  check('site name restored after the CSRF probe', restored && !/CSRF probe/i.test(originalSiteName), originalSiteName);
 
     const badUploadType = await context.request.post(`${baseUrl}/api/admin/media`, {
       headers: { 'X-CSRF-Token': csrf },
@@ -620,12 +703,26 @@ const run = async () => {
 
   /* -------------------------------------------------- cleanup + logout */
   await nav(page, '/admin/media');
-  for (let round = 0; round < 12; round += 1) {
-    const card = page.locator('[data-media-card]').filter({ hasText: 'qa-' }).first();
-    if ((await card.count()) === 0) break;
-    await card.locator('[data-media-delete]').click();
+  // Reload between deletions and wait for the count to drop: the grid is
+  // re-rendered after each delete, so a cached locator can point at a removed
+  // node and every later click would then do nothing.
+  for (let round = 0; round < 20; round += 1) {
+    const before = await page.locator('[data-media-card]').filter({ hasText: 'qa-' }).count();
+    if (before === 0) break;
+    await page.locator('[data-media-card]').filter({ hasText: 'qa-' }).first().locator('[data-media-delete]').click();
     await confirmYes(page);
-    await page.waitForTimeout(700);
+    const dropped = await page
+      .waitForFunction(
+        (previous) => {
+          const cards = [...document.querySelectorAll('[data-media-card]')].filter((card) => /qa-/i.test(card.textContent || ''));
+          return cards.length < previous;
+        },
+        before,
+        { timeout: 20000 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (!dropped) await page.reload({ waitUntil: 'domcontentloaded' });
   }
   const leftovers = await page.locator('[data-media-card]').filter({ hasText: 'qa-' }).count();
   check('no QA media left behind', leftovers === 0, `${leftovers} file(s)`);
@@ -646,6 +743,7 @@ const run = async () => {
   await page.waitForTimeout(900);
   check('admin protected after logout', page.url().includes('/admin/login'), page.url().replace(baseUrl, ''));
   await browser.close();
+  if (baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost')) await auditLocalLeftovers();
   const failed = results.filter((item) => !item.ok);
   if (errors.length) console.error(`\nBrowser errors:\n - ${errors.join('\n - ')}`);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
