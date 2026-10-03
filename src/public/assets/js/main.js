@@ -113,6 +113,10 @@
 			closeBtn.addEventListener('click', close);
 		}
 
+		Array.prototype.forEach.call(drawer.querySelectorAll('a[href]'), function (link) {
+			link.addEventListener('click', close);
+		});
+
 		// Clicking the backdrop (the element itself, not the panel) closes.
 		drawer.addEventListener('click', function (event) {
 			if (event.target === drawer) {
