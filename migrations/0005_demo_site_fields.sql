@@ -1,0 +1,1 @@
+ALTER TABLE demos ADD COLUMN worker_identifier TEXT NOT NULL DEFAULT '';

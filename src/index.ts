@@ -3,6 +3,7 @@ import { listRows, mediaById, projects, section, setting, settings } from './lib
 import { canAttemptLogin, clearSessionCookie, createSession, deleteSession, ensureAdmin, getSession, HttpError, isSecureRequest, recordLoginAttempt, requireCsrf, requireSession, sessionCookie, verifyPassword } from './lib/security';
 import { esc, render404, renderHome, renderPage, renderProject, renderSearch, renderWork } from './lib/html';
 import { ADMIN_CSS } from './lib/admin-css';
+import { handleDentalAdminApi } from './lib/dental-admin';
 
 const jsonResponse = (data: unknown, status = 200, extra: HeadersInit = {}): Response => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...extra } });
 const textResponse = (data: string, status = 200, headers: HeadersInit = {}): Response => new Response(data, { status, headers });
@@ -20,6 +21,13 @@ const stringValue = (body: JsonRecord, key: string, fallback = ''): string => ty
 const intValue = (body: JsonRecord, key: string, fallback = 0): number => Number.isFinite(Number(body[key])) ? Number(body[key]) : fallback;
 const boolValue = (body: JsonRecord, key: string, fallback = false): number => body[key] === undefined ? (fallback ? 1 : 0) : ['1', 'true', 'on', 'yes'].includes(String(body[key]).toLowerCase()) ? 1 : 0;
 const validUrl = (value: string): boolean => value === '' || /^https?:\/\/[^\s]+$/i.test(value) || /^\/[A-Za-z0-9_?&=./#-]*$/.test(value);
+const validHttpUrl = (value: string): boolean => {
+  if (!value) return true;
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname) && !url.username && !url.password;
+  } catch { return false; }
+};
 const splitJsonList = (value: string): string => JSON.stringify(value.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean));
 const jsonListValue = (body: JsonRecord, key: string): string => {
   const value = stringValue(body, key);
@@ -147,7 +155,8 @@ const adminProjects = async (request: Request, env: Env): Promise<Response> => {
   if (request.method === 'DELETE') { if (!id) return jsonResponse({ error: 'id is required.' }, 400); await env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run(); await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').bind(session.admin_id, 'delete', 'projects', id).run(); return jsonResponse({ ok: true }); }
   if (!stringValue(body, 'title') || !stringValue(body, 'slug')) return jsonResponse({ error: 'Title and slug are required.' }, 400);
   if (!validSlug(stringValue(body, 'slug'))) return jsonResponse({ error: 'Slug may contain lowercase letters, numbers, and hyphens.' }, 400);
-  if (!validUrl(stringValue(body, 'live_demo_url')) || !validUrl(stringValue(body, 'case_study_url'))) return jsonResponse({ error: 'Invalid project URL.' }, 400);
+  if (!['Portfolio Demo', 'Client Project', 'External Project', 'Concept Project'].includes(stringValue(body, 'project_type'))) return jsonResponse({ error: 'Choose a supported project type.' }, 400);
+  if (!validHttpUrl(stringValue(body, 'live_demo_url')) || !validUrl(stringValue(body, 'case_study_url'))) return jsonResponse({ error: 'Enter a full http:// or https:// URL for the live demo and a valid URL for the case study.' }, 400);
   const values = fields.map((field) => ['category_id', 'featured_image_id', 'case_study_media_id'].includes(field) ? (body[field] ? intValue(body, field) : null) : ['featured', 'published'].includes(field) ? boolValue(body, field, field === 'published') : field.endsWith('_json') ? jsonListValue(body, field) : field === 'sort_order' ? intValue(body, field) : stringValue(body, field));
   if (request.method === 'POST') { const result = await env.DB.prepare(`INSERT INTO projects (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`).bind(...values).run(); const projectId = Number(result.meta.last_row_id || 0); await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').bind(session.admin_id, 'create', 'projects', projectId).run(); return jsonResponse({ ok: true, id: projectId }); }
   if (!id) return jsonResponse({ error: 'id is required.' }, 400);
@@ -182,7 +191,7 @@ const adminInquiries = async (request: Request, env: Env): Promise<Response> => 
 };
 
 const demoValues = (fields: string[], body: JsonRecord): unknown[] => fields.map((field) => (
-  field === 'category_id'
+  ['category_id', 'screenshot_media_id'].includes(field)
     ? (body[field] ? intValue(body, field) : null)
     : field === 'sort_order' ? intValue(body, field) : stringValue(body, field)
 ));
@@ -190,8 +199,12 @@ const demoValues = (fields: string[], body: JsonRecord): unknown[] => fields.map
 const adminDemos = async (request: Request, env: Env): Promise<Response> => {
   const session = await requireSession(request, env);
   if (request.method === 'GET') return jsonResponse(await listRows<JsonRecord>(env, 'demos', '1 = 1', 'sort_order ASC'));
-  requireCsrf(request, session); const body = await readBody(request); const fields = ['name', 'slug', 'subdomain', 'description', 'status', 'live_url', 'category_id', 'sort_order'];
+  requireCsrf(request, session); const body = await readBody(request); const fields = ['name', 'slug', 'subdomain', 'description', 'status', 'live_url', 'worker_identifier', 'screenshot_media_id', 'category_id', 'sort_order'];
   const id = intValue(body, 'id');
+  if (body.status !== undefined && !['draft', 'active', 'archived'].includes(stringValue(body, 'status'))) return jsonResponse({ error: 'Choose Draft, Live, or Archived.' }, 400);
+  if (body.description !== undefined && stringValue(body, 'description').length > 4000) return jsonResponse({ error: 'Description must be 4,000 characters or fewer.' }, 400);
+  if (body.worker_identifier !== undefined && stringValue(body, 'worker_identifier').length > 120) return jsonResponse({ error: 'Worker/site identifier must be 120 characters or fewer.' }, 400);
+  if (body.live_url !== undefined && stringValue(body, 'live_url').length > 2048) return jsonResponse({ error: 'Site URL must be 2,048 characters or fewer.' }, 400);
   if (request.method === 'DELETE') {
     if (!id) return jsonResponse({ error: 'id is required.' }, 400);
     await env.DB.prepare('DELETE FROM demos WHERE id = ?').bind(id).run();
@@ -202,6 +215,7 @@ const adminDemos = async (request: Request, env: Env): Promise<Response> => {
     if (!id) return jsonResponse({ error: 'id is required.' }, 400);
     const provided = fields.filter((field) => body[field] !== undefined);
     if (!provided.length) return jsonResponse({ error: 'No fields supplied.' }, 400);
+    if (body.live_url !== undefined && !validHttpUrl(stringValue(body, 'live_url'))) return jsonResponse({ error: 'Enter a full http:// or https:// site URL.' }, 400);
     // Only validate the identity fields when this request actually changes them,
     // so a partial update such as "mark as configured" keeps working.
     if (provided.some((field) => ['name', 'slug', 'subdomain'].includes(field))) {
@@ -221,6 +235,7 @@ const adminDemos = async (request: Request, env: Env): Promise<Response> => {
   const name = stringValue(body, 'name'); const slug = stringValue(body, 'slug'); const subdomain = stringValue(body, 'subdomain');
   if (!name || !slug || !subdomain) return jsonResponse({ error: 'Name, slug, and subdomain are required.' }, 400);
   if (!/^[a-z0-9-]+$/.test(slug) || !/^[a-z0-9-]+\.xilveno\.shop$/.test(subdomain)) return jsonResponse({ error: 'Use a slug and subdomain such as dental.xilveno.shop.' }, 400);
+  if (!validHttpUrl(stringValue(body, 'live_url'))) return jsonResponse({ error: 'Enter a full http:// or https:// site URL.' }, 400);
   const duplicate = await env.DB.prepare('SELECT id FROM demos WHERE slug = ? OR subdomain = ?').bind(slug, subdomain).first<{ id: number }>();
   if (duplicate) return jsonResponse({ error: 'That demo slug or subdomain is already in use.' }, 409);
   await env.DB.prepare(`INSERT INTO demos (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`).bind(...demoValues(fields, body)).run();
@@ -323,6 +338,7 @@ const handleApi = async (request: Request, env: Env, pathname: string): Promise<
   if (pathname === '/api/auth/logout') return adminLogout(request, env);
   if (pathname === '/api/admin/session') { const session = await getSession(request, env); return session ? jsonResponse({ authenticated: true, csrfToken: session.csrf_token }) : jsonResponse({ authenticated: false }, 401); }
   if (pathname === '/api/admin/dashboard') { await requireSession(request, env); return dashboardData(env); }
+  if (pathname.startsWith('/api/admin/sites/brightsmile/')) return handleDentalAdminApi(request, env, pathname);
   if (pathname === '/api/admin/settings') return adminSettings(request, env);
   if (pathname === '/api/admin/projects') return adminProjects(request, env);
   if (pathname === '/api/admin/inquiries') return adminInquiries(request, env);

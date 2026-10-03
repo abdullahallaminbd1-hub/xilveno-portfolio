@@ -1,6 +1,8 @@
 export interface Env {
   DB: D1Database;
   MEDIA: R2Bucket;
+  BRIGHTSMILE_DB: D1Database;
+  BRIGHTSMILE_MEDIA: R2Bucket;
   ASSETS: Fetcher;
   ADMIN_BOOTSTRAP_PASSWORD?: string;
   SESSION_SECRET?: string;

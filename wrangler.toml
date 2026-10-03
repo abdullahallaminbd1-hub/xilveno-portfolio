@@ -14,9 +14,18 @@ database_name = "xilveno-portfolio-db"
 database_id = "107fee70-12e9-417e-b0d1-0a0139b631f9"
 migrations_dir = "migrations"
 
+[[d1_databases]]
+binding = "BRIGHTSMILE_DB"
+database_name = "xilveno-dentalcare-db"
+database_id = "0f60a0e2-5045-4b3b-880d-fd104b0c922f"
+
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "xilveno-portfolio-media"
+
+[[r2_buckets]]
+binding = "BRIGHTSMILE_MEDIA"
+bucket_name = "xilveno-dentalcare-media"
 
 [observability]
 enabled = true

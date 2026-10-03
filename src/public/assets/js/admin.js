@@ -160,25 +160,33 @@
   /* -------------------------------------------------------------- layout */
   const NAV_GROUPS = [
     { label: 'Overview', items: [['/admin/dashboard', 'Dashboard', 'grid']] },
-    { label: 'Pages', items: [['/admin/home', 'Homepage editor', 'layout'], ['/admin/about', 'About page', 'user']] },
+    { label: 'Pages', items: [['/admin/home', 'Homepage editor', 'layout'], ['/admin/about', 'About page', 'user'], ['/admin/sites/brightsmile', 'BrightSmile Dental', 'business']] },
     { label: 'Content', items: [['/admin/services', 'Services', 'business'], ['/admin/projects', 'Projects', 'monitor'], ['/admin/categories', 'Categories', 'tag'], ['/admin/process', 'Process', 'clock'], ['/admin/skills', 'Skills', 'code'], ['/admin/problems', 'Why it matters', 'warning'], ['/admin/faq', 'FAQ', 'help']] },
     { label: 'Library', items: [['/admin/media', 'Media library', 'image'], ['/admin/demos', 'Demo sites', 'demos']] },
     { label: 'Site', items: [['/admin/settings', 'Settings', 'settings'], ['/admin/seo', 'SEO', 'seo'], ['/admin/forms', 'Inquiries', 'mail']] },
   ];
   const isActive = (active, href) => active === href || (href !== '/admin/dashboard' && active.startsWith(`${href}/`));
-  const sidebar = (active) => `<aside class="admin-sidebar" id="admin-sidebar">
+  const sidebar = (active, selectedSite) => `<aside class="admin-sidebar" id="admin-sidebar">
     <div class="admin-sidebar__brand"><span class="admin-sidebar__logo" aria-hidden="true">X</span><div><strong>Xilveno</strong><span>Portfolio control centre</span></div></div>
-    ${NAV_GROUPS.map((group) => `<div class="admin-nav__group"><p class="admin-nav__label">${esc(group.label)}</p><nav class="admin-nav" aria-label="${esc(group.label)}">${group.items.map(([href, label, iconName]) => `<a href="${href}"${isActive(active, href) ? ' aria-current="page"' : ''}>${icon(iconName, 17)}<span>${esc(label)}</span></a>`).join('')}</nav></div>`).join('')}
+    ${NAV_GROUPS.map((group) => `<div class="admin-nav__group"><p class="admin-nav__label">${esc(group.label)}</p><nav class="admin-nav" aria-label="${esc(group.label)}">${group.items.map(([href, label, iconName]) => {
+      const target = selectedSite === 'brightsmile' && href === '/admin/media' ? '/admin/sites/brightsmile?section=images' : href;
+      const section = new URLSearchParams(window.location.search).get('section');
+      const isBrightSmileEditor = selectedSite === 'brightsmile' && href === '/admin/sites/brightsmile';
+      const activeMatch = isActive(active, target.split('?')[0])
+        && (target.includes('?section=images') ? section === 'images' : !(isBrightSmileEditor && section === 'images'));
+      return `<a href="${target}"${activeMatch ? ' aria-current="page"' : ''}>${icon(iconName, 17)}<span>${esc(selectedSite === 'brightsmile' && label === 'Media library' ? 'BrightSmile media library' : label)}</span></a>`;
+    }).join('')}</nav></div>`).join('')}
     <div class="admin-sidebar__foot">
-      <a href="/" target="_blank" rel="noopener">${icon('external', 17)}<span>Open public site</span></a>
+      <a href="${selectedSite === 'brightsmile' ? 'https://dental.xilveno.shop/' : '/'}" target="_blank" rel="noopener">${icon('external', 17)}<span>Open public site</span></a>
       <button type="button" data-logout>${icon('logout', 17)}<span>Log out</span></button>
     </div>
   </aside>`;
 
   const layout = (content, active, title, options = {}) => {
     const { subtitle = '', actions = '' } = options;
+    const selectedSite = active.startsWith('/admin/sites/brightsmile') ? 'brightsmile' : 'portfolio';
     return `<div class="admin-shell"><div class="admin-layout">
-      ${sidebar(active)}
+      ${sidebar(active, selectedSite)}
       <section class="admin-main">
         <div class="admin-top">
           <div class="admin-top__text">
@@ -187,7 +195,13 @@
             ${subtitle ? `<p>${esc(subtitle)}</p>` : ''}
           </div>
           <div class="admin-top__actions">
-            <a class="admin-button secondary" href="/" target="_blank" rel="noopener">${icon('external', 16)} View site</a>
+            <label class="admin-label" style="min-width:190px;margin:0">Manage site
+              <select class="admin-select" data-site-switcher aria-label="Select site">
+                <option value="portfolio"${selectedSite === 'portfolio' ? ' selected' : ''}>Xilveno Portfolio</option>
+                <option value="brightsmile"${selectedSite === 'brightsmile' ? ' selected' : ''}>BrightSmile Dental</option>
+              </select>
+            </label>
+            <a class="admin-button secondary" href="${selectedSite === 'brightsmile' ? 'https://dental.xilveno.shop/' : '/'}" target="_blank" rel="noopener">${icon('external', 16)} View site</a>
             ${actions}
           </div>
         </div>
@@ -213,6 +227,9 @@
       } else if (!open && existing) existing.remove();
     };
     document.querySelectorAll('[data-menu-toggle]').forEach((button) => button.addEventListener('click', () => openDrawer(!sidebarNode.classList.contains('is-open'))));
+    document.querySelectorAll('[data-site-switcher]').forEach((select) => select.addEventListener('change', () => {
+      window.location.href = select.value === 'brightsmile' ? '/admin/sites/brightsmile' : '/admin/dashboard';
+    }));
     sidebarNode?.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => openDrawer(false)));
     document.querySelectorAll('[data-logout]').forEach((button) => button.addEventListener('click', async () => {
       await busy(button, async () => {
@@ -1068,7 +1085,11 @@
       { name: 'full_description', label: 'Full description', type: 'area', rows: 6 },
     ] },
     { legend: 'Project details', fields: [
-      { name: 'project_type', label: 'Project type', type: 'text', hint: 'e.g. Concept Project or Client Project.' },
+      { name: 'project_type', label: 'Project type', type: 'select', options: [
+        { value: 'Portfolio Demo', label: 'Portfolio Demo' },
+        { value: 'Client Project', label: 'Client Project' },
+        { value: 'External Project', label: 'External Project' },
+      ] },
       { name: 'platform', label: 'Platform', type: 'text', hint: 'e.g. WordPress, Shopify, custom.' },
       { name: 'role', label: 'Your role', type: 'text', hint: 'e.g. Design and build.' },
       { name: 'focus', label: 'Focus', type: 'text', hint: 'e.g. Conversions and clarity.' },
@@ -1093,9 +1114,13 @@
   ];
   const PROJECT_FIELD_NAMES = PROJECT_GROUPS.flatMap((group) => group.fields.map((field) => field.name));
   const projectFieldMarkup = (field, row) => {
-    const value = row ? row[field.name] : (field.name === 'published' ? true : field.name === 'sort_order' ? 0 : '');
+    const value = row ? row[field.name] : (field.name === 'published' ? true : field.name === 'sort_order' ? 0 : field.name === 'project_type' ? 'Portfolio Demo' : '');
     if (field.type === 'area') return fieldArea({ name: field.name, label: field.label, value: String(value ?? ''), hint: field.hint, rows: field.rows });
     if (field.type === 'list') return fieldArea({ name: field.name, label: field.label, value: rowsOf(value ?? '[]').map((item) => String(item ?? '')).join('\n'), hint: field.hint, rows: field.rows });
+    if (field.type === 'select') {
+      const options = field.options.some((option) => String(option.value) === String(value)) ? field.options : [...field.options, { value, label: String(value) }];
+      return fieldSelect({ name: field.name, label: field.label, value, options, hint: field.hint });
+    }
     if (field.type === 'number') return fieldNumber({ name: field.name, label: field.label, value: value ?? 0, hint: field.hint });
     if (field.type === 'check') return fieldCheck({ name: field.name, label: field.label, checked: isTrue(value), hint: field.hint });
     return fieldText({ name: field.name, label: field.label, value: String(value ?? ''), hint: field.hint });
@@ -1697,8 +1722,11 @@
     { name: 'name', label: 'Demo name', type: 'text', required: true },
     { name: 'slug', label: 'Short name (slug)', type: 'text', required: true, hint: 'Lowercase letters, numbers and hyphens.' },
     { name: 'subdomain', label: 'Subdomain', type: 'text', required: true, hint: 'For example dental.xilveno.shop' },
-    { name: 'live_url', label: 'Live URL', type: 'text', hint: 'Full https:// address once the demo is online.' },
-    { name: 'status', label: 'Status', type: 'select', options: [{ value: 'draft', label: 'Draft — not configured yet' }, { value: 'active', label: 'Active — configured and live' }, { value: 'archived', label: 'Archived' }] },
+    { name: 'description', label: 'Description', type: 'area', rows: 3 },
+    { name: 'live_url', label: 'Site URL', type: 'text', hint: 'Any valid external http:// or https:// URL.' },
+    { name: 'worker_identifier', label: 'Worker/site identifier', type: 'text', hint: 'Optional internal label for the deployed site.' },
+    { name: 'screenshot_media_id', label: 'Preview image', type: 'image', hint: 'Choose a portfolio image or upload a new preview.' },
+    { name: 'status', label: 'Status', type: 'select', options: [{ value: 'draft', label: 'Draft — not live' }, { value: 'active', label: 'Live — deployment and URL verified' }, { value: 'archived', label: 'Archived' }], hint: 'Mark Live only after deployment and the public URL have been verified.' },
     { name: 'sort_order', label: 'Order', type: 'number' },
   ];
   const demoFieldMarkup = (field, row) => {
@@ -1706,6 +1734,7 @@
     if (field.type === 'select') return fieldSelect({ name: field.name, label: field.label, value: value, options: field.options, hint: field.hint });
     if (field.type === 'number') return fieldNumber({ name: field.name, label: field.label, value: value ?? 0, hint: field.hint });
     if (field.type === 'area') return fieldArea({ name: field.name, label: field.label, value: String(value ?? ''), hint: field.hint, rows: field.rows || 3 });
+    if (field.type === 'image') return pickerField({ name: field.name, label: field.label, value: value || '', hint: field.hint });
     return fieldText({ name: field.name, label: field.label, value: String(value ?? ''), hint: field.hint });
   };
   const demoPayload = (form) => {
@@ -1720,18 +1749,20 @@
         <div>
           <h3 style="font-size:16px">${esc(row.name)}</h3>
           <p class="admin-hint">${esc(row.subdomain || '')}</p>
+          ${row.worker_identifier ? `<p class="admin-hint">${esc(row.worker_identifier)}</p>` : ''}
         </div>
       </div>
       <div class="admin-actions">
-        ${row.status === 'active' ? statusChip('Active', 'ok') : row.status === 'archived' ? statusChip('Archived', 'muted') : statusChip('Cloudflare setup required', 'warn')}
+        ${row.status === 'active' ? statusChip('Live', 'ok') : row.status === 'archived' ? statusChip('Archived', 'muted') : statusChip('Not verified live', 'warn')}
         ${row.live_url ? `<a class="admin-button secondary admin-button--sm" href="${esc(row.live_url)}" target="_blank" rel="noopener">${icon('external', 14)} Open demo</a>` : ''}
         <button type="button" class="admin-button secondary admin-button--sm" data-demo-edit aria-expanded="false">${icon('edit', 14)} Edit</button>
-        ${row.status === 'active' ? '' : `<button type="button" class="admin-button secondary admin-button--sm" data-demo-active>${icon('check', 14)} Mark as configured</button>`}
+        ${row.status === 'active' ? '' : `<button type="button" class="admin-button secondary admin-button--sm" data-demo-active>${icon('check', 14)} Mark live (verified)</button>`}
         <button type="button" class="admin-button danger admin-button--sm" data-demo-delete>${icon('trash', 14)} Delete</button>
       </div>
     </div>
+    ${row.screenshot_media_id && mediaSrcById(row.screenshot_media_id) ? `<img src="${esc(mediaSrcById(row.screenshot_media_id))}" alt="" style="display:block;width:min(100%,420px);max-height:220px;object-fit:cover;border-radius:12px;margin:0 0 12px">` : ''}
     ${row.description ? `<p class="admin-hint" style="margin:0 0 12px">${esc(row.description)}</p>` : ''}
-    ${row.status === 'active' ? '' : '<p class="admin-inline-note admin-inline-note--warn" style="margin:0 0 12px">Subdomains are not created automatically. Add the DNS record and the Worker route in the Cloudflare dashboard first, then mark this demo as configured.</p>'}
+    ${row.status === 'active' ? '' : '<p class="admin-inline-note admin-inline-note--warn" style="margin:0 0 12px">Subdomains are not created automatically. Deploy the Worker, attach its domain, and verify the public URL before marking this demo live.</p>'}
     <form class="admin-form" data-demo-form data-id="${esc(row.id)}" hidden>
       <div class="admin-split">${DEMO_FIELDS.map((field) => demoFieldMarkup(field, row)).join('')}</div>
       ${fieldSelect({ name: 'category_id', label: 'Category', value: row.category_id ?? '', options: categoryOptions })}
@@ -1742,7 +1773,7 @@
     const [demoRows, categoryRows] = await Promise.all([request('/api/admin/demos'), request('/api/admin/categories')]);
     const rows = normalizeRows(demoRows);
     const categories = normalizeRows(categoryRows);
-    try { await loadMedia(); } catch { /* preview images are optional */ }
+    await loadMedia();
     const categoryOptions = [{ value: '', label: 'No category' }, ...categories.map((item) => ({ value: String(item.id), label: String(item.name) }))];
     const content = `<section class="admin-card">
       <div class="admin-card__head"><div><h3>Add a demo site</h3><p>Demo sites are listed for reference. Creating the subdomain itself happens in the Cloudflare dashboard.</p></div></div>
@@ -1788,12 +1819,12 @@
         if (!form.hidden) form.scrollIntoView({ block: 'nearest' });
       });
       card.querySelector('[data-demo-active]')?.addEventListener('click', async (event) => {
-        const confirmed = await confirmDialog({ title: 'Mark this demo as configured?', text: 'Only do this after the DNS record and Worker route exist in Cloudflare. This panel does not create them for you.', confirmLabel: 'Yes, it is configured', danger: false });
+        const confirmed = await confirmDialog({ title: 'Mark this demo live?', text: 'Confirm that its Worker deployment succeeded and its public URL is resolving correctly over HTTPS. This panel does not deploy or attach domains.', confirmLabel: 'Yes, deployment and URL verified', danger: false });
         if (!confirmed) return;
         await busy(event.currentTarget, async () => {
           try {
             await request('/api/admin/demos', { method: 'PUT', body: JSON.stringify({ id: card.dataset.demo, status: 'active' }) });
-            notify('Demo marked as configured.');
+            notify('Demo marked live.');
             await reload();
           } catch (error) { say(error.message, true); }
         });
@@ -1806,6 +1837,274 @@
             await request('/api/admin/demos', { method: 'DELETE', body: JSON.stringify({ id: card.dataset.demo }) });
             notify('Demo deleted.');
             await reload();
+          } catch (error) { say(error.message, true); }
+        });
+      });
+    });
+  };
+  /* ----------------------------------------------------- BrightSmile site */
+  const dentalState = { active: 'home', editor: null, slots: [], media: [] };
+  const DENTAL_API = '/api/admin/sites/brightsmile';
+  const dentalPreviewUrl = (section) => {
+    const paths = {
+      home: '/', about: '/about/', services: '/services/', team: '/team/',
+      'patient-info': '/patient-info/', contact: '/contact/', appointment: '/book/', footer: '/contact/',
+    };
+    const path = section === 'images' ? '/' : (paths[section] || '/');
+    return `https://dental.xilveno.shop${path}?admin-preview=${Date.now()}`;
+  };
+  const loadDentalData = async () => {
+    const [editor, slots, media] = await Promise.all([
+      request(`${DENTAL_API}/content`),
+      request(`${DENTAL_API}/slots`),
+      request(`${DENTAL_API}/media`),
+    ]);
+    dentalState.editor = editor;
+    dentalState.slots = normalizeRows(slots);
+    dentalState.media = normalizeRows(media);
+  };
+  const dentalFieldMarkup = (field) => {
+    const value = dentalState.editor.values[field.key] || '';
+    if (field.type === 'text') return fieldText({
+      name: field.key, label: field.label, value, hint: field.hint,
+      placeholder: 'Leave blank to keep the approved content',
+    });
+    return fieldArea({
+      name: field.key, label: field.label, value, hint: field.hint,
+      rows: field.type === 'hours' ? 6 : 5,
+    });
+  };
+  const dentalSlotMarkup = (slot) => `<article class="admin-card admin-card--tight" data-dental-slot="${esc(slot.slot)}">
+    <div class="admin-card__head"><div><h3>${esc(slot.label)}</h3><p>${esc(slot.section)} · ${esc(slot.dimensions)}</p></div></div>
+    ${slot.preview
+      ? `<img src="${esc(slot.preview)}" alt="${esc(slot.alt_text)}" style="display:block;width:100%;max-height:220px;object-fit:cover;border-radius:12px;margin:12px 0">`
+      : '<div class="admin-empty" style="margin:12px 0">Approved artwork fallback is currently shown on the website.</div>'}
+    <label class="admin-label">Alt text<input class="admin-input" data-slot-alt value="${esc(slot.alt_text || '')}" placeholder="Describe the image briefly"></label>
+    <div class="admin-actions" style="margin-top:12px">
+      <button type="button" class="admin-button secondary admin-button--sm" data-slot-choose>Choose from media</button>
+      <button type="button" class="admin-button secondary admin-button--sm" data-slot-upload>Upload new image</button>
+      <input type="file" accept="image/jpeg,image/png,image/webp" data-slot-file hidden>
+      ${slot.is_custom ? '<button type="button" class="admin-button ghost admin-button--sm" data-slot-alt-save>Save alt text</button><button type="button" class="admin-button danger admin-button--sm" data-slot-remove>Remove</button>' : ''}
+    </div>
+  </article>`;
+  const dentalMediaMarkup = (row) => `<article class="admin-card admin-card--tight" data-dental-media="${esc(row.id)}">
+    <img src="${esc(row.preview)}" alt="${esc(row.alt_text || '')}" style="display:block;width:100%;height:180px;object-fit:cover;border-radius:12px">
+    <p style="margin:10px 0 4px"><strong>${esc(row.filename)}</strong></p>
+    <p class="admin-hint">${esc(humanSize(row.byte_size))}${row.used_in.length ? ` · Used in ${esc(row.used_in.length)} location(s)` : ' · Not assigned'}</p>
+    <label class="admin-label">Alt text<input class="admin-input" data-media-alt value="${esc(row.alt_text || '')}" placeholder="Describe the image briefly"></label>
+    <div class="admin-actions" style="margin-top:10px">
+      <button type="button" class="admin-button secondary admin-button--sm" data-media-alt-save>Save alt text</button>
+      <button type="button" class="admin-button secondary admin-button--sm" data-media-replace>Replace image</button>
+      <input type="file" accept="image/jpeg,image/png,image/webp" data-media-file hidden>
+      <button type="button" class="admin-button danger admin-button--sm" data-media-delete>Delete</button>
+    </div>
+  </article>`;
+  const dentalEditorPage = async () => {
+    await loadDentalData();
+    const requestedSection = new URLSearchParams(window.location.search).get('section');
+    if (requestedSection && [...dentalState.editor.sections.map((item) => item.id), 'images'].includes(requestedSection)) dentalState.active = requestedSection;
+    renderDentalEditor();
+  };
+  const renderDentalEditor = () => {
+    const section = dentalState.active === 'images'
+      ? { id: 'images', label: 'Images', fields: [], imageSlots: dentalState.slots.map((slot) => slot.slot) }
+      : dentalState.editor.sections.find((item) => item.id === dentalState.active) || dentalState.editor.sections[0];
+    const slots = dentalState.slots.filter((slot) => section.id === 'images' || section.imageSlots.includes(slot.slot));
+    const isMediaLibrary = section.id === 'images';
+    const content = `<div class="admin-card">
+      <div class="admin-card__head"><div><h3>BrightSmile Dental</h3><p>Changes here are stored with BrightSmile and appear on its public website. The preview is the live site, not a duplicate mock-up.</p></div>
+        <a class="admin-button secondary" href="https://dental.xilveno.shop/" target="_blank" rel="noopener">${icon('external', 15)} Open live site</a>
+      </div>
+      <nav class="admin-tabs" aria-label="BrightSmile sections">${[...dentalState.editor.sections.map((item) => item.id), 'images'].map((id) => {
+        const label = id === 'images' ? 'Images' : dentalState.editor.sections.find((item) => item.id === id)?.label;
+        return `<button type="button" data-dental-section="${esc(id)}" aria-pressed="${id === section.id ? 'true' : 'false'}">${esc(label)}</button>`;
+      }).join('')}</nav>
+    </div>
+    <div class="admin-grid" style="grid-template-columns:minmax(0,1fr);gap:18px">
+      <div class="admin-card admin-card--tight">
+        <h3 style="margin-top:0">Live BrightSmile preview</h3>
+        <iframe title="Live BrightSmile ${esc(section.label)} preview" src="${esc(dentalPreviewUrl(section.id))}" loading="lazy" style="display:block;width:100%;height:min(65vh,680px);min-height:420px;border:1px solid var(--admin-border,#d9dee8);border-radius:12px;background:white"></iframe>
+      </div>
+      ${isMediaLibrary
+        ? `<section class="admin-card"><div class="admin-card__head"><div><h3>Approved image locations</h3><p>Only the 17 locations from the BrightSmile image manifest are listed. Removing an image restores the site's approved artwork fallback.</p></div></div><div class="admin-grid">${slots.map(dentalSlotMarkup).join('')}</div></section>`
+        : `<section class="admin-card"><div class="admin-card__head"><div><h3>${esc(section.label)} content</h3><p>Only content fields used by this BrightSmile section are shown. Blank fields keep the approved published copy.</p></div></div>
+          ${section.fields.length
+            ? `<form class="admin-stack" data-dental-content-form>${section.fields.map(dentalFieldMarkup).join('')}<div class="admin-actions"><button class="admin-button" type="submit">Save changes</button><button class="admin-button secondary" type="button" data-dental-cancel>Cancel</button></div></form>`
+            : '<p class="admin-empty">This section currently has no editable text fields.</p>'}
+          ${slots.length ? `<hr><div class="admin-card__head"><div><h3>Images used in ${esc(section.label)}</h3><p>Image locations are defined by the approved BrightSmile manifest.</p></div></div><div class="admin-grid">${slots.map(dentalSlotMarkup).join('')}</div>` : ''}
+        </section>`}
+      ${isMediaLibrary ? `<section class="admin-card">
+        <div class="admin-card__head"><div><h3>BrightSmile media library</h3><p>Images uploaded here are stored only in BrightSmile's dedicated media bucket.</p></div>
+          <button type="button" class="admin-button" data-library-upload>${icon('upload', 15)} Upload new image</button>
+          <input type="file" accept="image/jpeg,image/png,image/webp" data-library-file hidden>
+        </div>
+        <label class="admin-label" style="max-width:520px">Alt text for the new image<input class="admin-input" type="text" data-library-new-alt maxlength="500" placeholder="Describe the image briefly"></label>
+        <label class="admin-label" style="max-width:420px">Search images<input class="admin-input" type="search" data-library-search placeholder="Search by file name"></label>
+        <div class="admin-grid" data-library-grid>${dentalState.media.map(dentalMediaMarkup).join('') || '<p class="admin-empty">No BrightSmile images uploaded yet. The approved fallback artwork remains in use.</p>'}</div>
+      </section>` : ''}
+    </div>`;
+    root.innerHTML = layout(content, '/admin/sites/brightsmile', 'BrightSmile site editor', { subtitle: `${esc(section.label)} · Site-specific content and media` });
+    bindChrome();
+    root.querySelectorAll('[data-dental-section]').forEach((button) => button.addEventListener('click', () => {
+      dentalState.active = button.dataset.dentalSection;
+      const url = new URL(window.location.href);
+      url.searchParams.set('section', dentalState.active);
+      window.history.replaceState({}, '', url);
+      renderDentalEditor();
+    }));
+    root.querySelector('[data-dental-content-form]')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const values = Object.fromEntries(section.fields.map((field) => [field.key, controlValue(getField(form, field.key), '')]));
+      const button = form.querySelector('button[type="submit"]');
+      await busy(button, async () => {
+        try {
+          await request(`${DENTAL_API}/content`, { method: 'PUT', body: JSON.stringify({ values }) });
+          await loadDentalData();
+          say('Saved. The BrightSmile public site now uses these changes.');
+          renderDentalEditor();
+        } catch (error) { say(error.message, true); }
+      });
+    });
+    root.querySelector('[data-dental-cancel]')?.addEventListener('click', async () => {
+      try { await loadDentalData(); renderDentalEditor(); say('Unsaved changes discarded.'); }
+      catch (error) { say(error.message, true); }
+    });
+    slots.forEach((slot) => bindDentalSlot(slot));
+    if (isMediaLibrary) bindDentalLibrary();
+  };
+  const uploadDentalMedia = async (file, altText, replaceId = '') => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('alt_text', altText);
+    if (replaceId) form.append('id', replaceId);
+    await request(`${DENTAL_API}/media`, { method: replaceId ? 'PUT' : 'POST', body: form });
+    await loadDentalData();
+  };
+  const assignDentalMedia = async (slot, mediaId, altText) => {
+    await request(`${DENTAL_API}/slots/${encodeURIComponent(slot)}`, {
+      method: 'PUT', body: JSON.stringify({ media_id: mediaId, alt_text: altText }),
+    });
+    await loadDentalData();
+    renderDentalEditor();
+    say('Image saved to this BrightSmile location.');
+  };
+  const bindDentalSlot = (slot) => {
+    const card = root.querySelector(`[data-dental-slot="${CSS.escape(slot.slot)}"]`);
+    if (!card) return;
+    const altInput = card.querySelector('[data-slot-alt]');
+    const remove = card.querySelector('[data-slot-remove]');
+    card.querySelector('[data-slot-choose]')?.addEventListener('click', () => openDentalMediaPicker(slot, altInput.value));
+    card.querySelector('[data-slot-upload]')?.addEventListener('click', () => card.querySelector('[data-slot-file]').click());
+    card.querySelector('[data-slot-file]')?.addEventListener('change', async (event) => {
+      const file = event.currentTarget.files?.[0];
+      if (!file) return;
+      try {
+        await uploadDentalMedia(file, altInput.value);
+        const uploaded = dentalState.media[0];
+        await assignDentalMedia(slot.slot, uploaded.id, altInput.value);
+      } catch (error) { say(error.message, true); }
+    });
+    card.querySelector('[data-slot-alt-save]')?.addEventListener('click', async (event) => {
+      await busy(event.currentTarget, async () => {
+        try {
+          await request(`${DENTAL_API}/slots/${encodeURIComponent(slot.slot)}`, { method: 'PUT', body: JSON.stringify({ alt_text: altInput.value }) });
+          await loadDentalData(); renderDentalEditor(); say('Alt text saved.');
+        } catch (error) { say(error.message, true); }
+      });
+    });
+    remove?.addEventListener('click', async (event) => {
+      const confirmed = await confirmDialog({ title: `Remove ${slot.label} image?`, text: 'The assigned image will be removed and the approved BrightSmile fallback restored.', confirmLabel: 'Remove image' });
+      if (!confirmed) return;
+      await busy(event.currentTarget, async () => {
+        try {
+          await request(`${DENTAL_API}/slots/${encodeURIComponent(slot.slot)}`, { method: 'DELETE', body: '{}' });
+          await loadDentalData(); renderDentalEditor(); say('The approved fallback is restored.');
+        } catch (error) { say(error.message, true); }
+      });
+    });
+  };
+  const openDentalMediaPicker = (slot, altText) => {
+    const modal = document.createElement('div');
+    modal.className = 'admin-modal';
+    modal.innerHTML = `<div class="admin-modal__panel" role="dialog" aria-modal="true" aria-label="Choose BrightSmile image">
+      <div class="admin-modal__head"><h3>Choose an image for ${esc(slot.label)}</h3></div>
+      <div class="admin-modal__body"><label class="admin-label">Search BrightSmile images<input class="admin-input" type="search" data-search></label><div data-grid></div>
+        <label class="admin-label">Upload new image<input type="file" accept="image/jpeg,image/png,image/webp" data-upload></label>
+      </div>
+      <div class="admin-modal__foot"><button type="button" class="admin-button secondary" data-close>Cancel</button></div>
+    </div>`;
+    document.body.appendChild(modal);
+    const grid = modal.querySelector('[data-grid]');
+    const render = () => {
+      const query = modal.querySelector('[data-search]').value.trim().toLowerCase();
+      const rows = dentalState.media.filter((item) => String(item.filename).toLowerCase().includes(query));
+      grid.innerHTML = rows.length ? `<div class="admin-media-grid">${rows.map((row) => `<button type="button" class="admin-media-card" data-choose-media="${esc(row.id)}">
+        <img class="admin-media-card__thumb" src="${esc(row.preview)}" alt="${esc(row.alt_text || '')}" loading="lazy">
+        <span class="admin-media-card__body"><span class="admin-media-card__name">${esc(row.filename)}</span><span class="admin-media-meta">${esc(humanSize(row.byte_size))}</span></span>
+      </button>`).join('')}</div>` : '<p class="admin-empty">No matching BrightSmile image. Upload a new image here.</p>';
+      grid.querySelectorAll('[data-choose-media]').forEach((button) => button.addEventListener('click', async () => {
+        const media = dentalState.media.find((item) => String(item.id) === button.dataset.chooseMedia);
+        if (!media) return;
+        modal.remove();
+        try { await assignDentalMedia(slot.slot, media.id, altText || media.alt_text || ''); }
+        catch (error) { say(error.message, true); }
+      }));
+    };
+    modal.querySelector('[data-search]').addEventListener('input', render);
+    modal.querySelector('[data-close]').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (event) => { if (event.target === modal) modal.remove(); });
+    modal.querySelector('[data-upload]').addEventListener('change', async (event) => {
+      const file = event.currentTarget.files?.[0];
+      if (!file) return;
+      try {
+        await uploadDentalMedia(file, altText);
+        modal.remove();
+        await assignDentalMedia(slot.slot, dentalState.media[0].id, altText);
+      } catch (error) { say(error.message, true); }
+    });
+    render();
+    modal.querySelector('[data-search]').focus();
+  };
+  const bindDentalLibrary = () => {
+    const search = root.querySelector('[data-library-search]');
+    search?.addEventListener('input', () => {
+      const query = search.value.trim().toLowerCase();
+      root.querySelectorAll('[data-dental-media]').forEach((card) => { card.hidden = !card.textContent.toLowerCase().includes(query); });
+    });
+    root.querySelector('[data-library-upload]')?.addEventListener('click', () => root.querySelector('[data-library-file]').click());
+    root.querySelector('[data-library-file]')?.addEventListener('change', async (event) => {
+      const file = event.currentTarget.files?.[0];
+      if (!file) return;
+      const altText = root.querySelector('[data-library-new-alt]').value;
+      try { await uploadDentalMedia(file, altText); renderDentalEditor(); say('Image uploaded to BrightSmile media.'); }
+      catch (error) { say(error.message, true); }
+    });
+    root.querySelectorAll('[data-dental-media]').forEach((card) => {
+      const id = card.dataset.dentalMedia;
+      const alt = card.querySelector('[data-media-alt]');
+      card.querySelector('[data-media-alt-save]')?.addEventListener('click', async (event) => {
+        await busy(event.currentTarget, async () => {
+          try {
+            await request(`${DENTAL_API}/media/${id}`, { method: 'PATCH', body: JSON.stringify({ alt_text: alt.value }) });
+            await loadDentalData(); renderDentalEditor(); say('Alt text saved.');
+          } catch (error) { say(error.message, true); }
+        });
+      });
+      card.querySelector('[data-media-replace]')?.addEventListener('click', () => card.querySelector('[data-media-file]').click());
+      card.querySelector('[data-media-file]')?.addEventListener('change', async (event) => {
+        const file = event.currentTarget.files?.[0];
+        if (!file) return;
+        try { await uploadDentalMedia(file, alt.value, id); renderDentalEditor(); say('Image replaced in BrightSmile media.'); }
+        catch (error) { say(error.message, true); }
+      });
+      card.querySelector('[data-media-delete]')?.addEventListener('click', async (event) => {
+        const confirmed = await confirmDialog({ title: 'Delete this BrightSmile image?', text: 'This image will be removed from every BrightSmile location that uses it. Those locations will return to their approved fallback.', confirmLabel: 'Delete image' });
+        if (!confirmed) return;
+        await busy(event.currentTarget, async () => {
+          try {
+            await request(`${DENTAL_API}/media/${id}`, { method: 'DELETE', body: '{}' });
+            await loadDentalData(); renderDentalEditor(); say('Image deleted from BrightSmile media.');
           } catch (error) { say(error.message, true); }
         });
       });
@@ -1830,6 +2129,7 @@
     [/^\/admin\/seo\/?$/, () => seoPage()],
     [/^\/admin\/forms\/?$/, () => inquiriesPage()],
     [/^\/admin\/demos\/?$/, () => demosPage()],
+    [/^\/admin\/sites\/brightsmile\/?$/, () => dentalEditorPage()],
   ];
 
   const fatal = (error) => {
