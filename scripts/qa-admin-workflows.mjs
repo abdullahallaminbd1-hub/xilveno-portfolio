@@ -126,6 +126,16 @@ const run = async () => {
   const errors = [];
   const page = await context.newPage();
   ignoreNoise(page, errors);
+  let observedProjectUpdate;
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/admin/projects') && request.method() === 'PUT') {
+      const body = request.postDataJSON();
+      observedProjectUpdate = {
+        featured: Boolean(body.featured_image_id),
+        caseStudy: Boolean(body.case_study_media_id),
+      };
+    }
+  });
 
   /* -------------------------------------------------------------- login */
   if (arg('state') && existsSync(arg('state'))) {
@@ -192,8 +202,8 @@ const run = async () => {
   await nav(page, '/admin/home');
   await page.waitForSelector('[data-section-list] [data-select]', { timeout: 15000 }).catch(() => null);
   const railCount = await page.locator('[data-section-list] [data-select]').count();
-  check('homepage section list', railCount === 10, `${railCount} sections`);
-  for (const id of ['hero', 'tech-stack', 'services', 'work', 'featured', 'problems', 'process', 'skills', 'faq', 'cta']) {
+  check('homepage section list', railCount === 9, `${railCount} sections`);
+  for (const id of ['hero', 'tech-stack', 'services', 'work', 'problems', 'process', 'skills', 'faq', 'cta']) {
     await page.click(`[data-select="${id}"]`);
     await page.waitForTimeout(220);
     const heading = (await page.locator('[data-panel] h3').innerText()).trim();
@@ -345,19 +355,42 @@ const run = async () => {
   check('project created', /\/admin\/projects\/\d+$/.test(page.url()), page.url().replace(baseUrl, ''));
   await page.waitForSelector('[data-gallery-grid]', { timeout: 10000 });
 
+  const featuredFileName = `qa-featured-${stamp}.png`;
   const featuredChooser = page.waitForEvent('filechooser', { timeout: 12000 });
   await page.click('[data-picker] [data-picker-upload]');
-  await (await featuredChooser).setFiles({ name: `qa-featured-${stamp}.png`, mimeType: 'image/png', buffer: PIXEL_PNG });
+  await (await featuredChooser).setFiles({ name: featuredFileName, mimeType: 'image/png', buffer: PIXEL_PNG });
   check('featured image uploaded through the picker', Boolean(await toast(page, 'Image uploaded')));
+  await page.waitForFunction(() => Boolean(document.querySelector('[data-project-form] [name="featured_image_id"]')?.value));
   await page.waitForTimeout(700);
   check('featured image preview shown', await page.locator('[data-picker] .admin-picker-preview img').count() === 1);
+  const caseStudyFileName = `qa-case-study-${stamp}.png`;
+  const caseStudyChooser = page.waitForEvent('filechooser', { timeout: 12000 });
+  await page.locator('[data-project-form] [data-picker]').nth(1).locator('[data-picker-upload]').click();
+  await (await caseStudyChooser).setFiles({ name: caseStudyFileName, mimeType: 'image/png', buffer: PIXEL_PNG });
+  check('case study lead image uploaded through the picker', Boolean(await toast(page, 'Image uploaded')));
+  await page.waitForFunction(() => Boolean(document.querySelector('[data-project-form] [name="case_study_media_id"]')?.value));
+  const selectedProjectImages = await Promise.all([
+    page.locator('[data-project-form] [name="featured_image_id"]').inputValue(),
+    page.locator('[data-project-form] [name="case_study_media_id"]').inputValue(),
+  ]);
+  check('project image selections remain attached to their fields', selectedProjectImages.every(Boolean), selectedProjectImages.map((value) => value ? 'selected' : 'empty').join(','));
+  console.log('Project image picker state:', JSON.stringify(await page.locator('[data-project-form] [data-picker]').evaluateAll((pickers) => pickers.map((picker) => ({
+    name: picker.querySelector('[data-picker-source]')?.name,
+    value: picker.querySelector('[data-picker-source]')?.value,
+    preview: picker.querySelector('[data-picker-preview] img')?.getAttribute('src') || '',
+  })))));
+  await page.click('[data-project-form] button[type="submit"]');
+  check('project image selections saved', Boolean(await toast(page, 'Project saved')));
+  check('project update request includes selected images', observedProjectUpdate?.featured === true && observedProjectUpdate?.caseStudy === true, JSON.stringify(observedProjectUpdate));
   await page.click('[data-gallery-add]');
   await page.waitForSelector('.admin-modal');
   const mediaCards = page.locator('.admin-modal [data-media]');
   const available = await mediaCards.count();
   if (available >= 2) {
-    await mediaCards.nth(0).click();
-    await mediaCards.nth(1).click();
+    for (const file of galleryFiles.slice(0, 2)) {
+      await page.locator('.admin-modal [data-media]').filter({ hasText: file.name }).first().locator('.admin-media-card__name').click();
+    }
+    await page.waitForFunction(() => document.querySelector('.admin-modal [data-count]')?.textContent.includes('2 selected'));
     await page.click('.admin-modal [data-use]');
     check('gallery images added', Boolean(await toast(page, 'Gallery saved')));
   } else {
@@ -398,6 +431,13 @@ const run = async () => {
   await page.click('[data-project-form] button[type="submit"]');
   check('project saved', Boolean(await toast(page, 'Project saved')));
   await page.waitForTimeout(1000);
+  const storedProjectImages = await page.evaluate(async (slug) => {
+    const response = await fetch('/api/admin/projects');
+    const data = await response.json();
+    const row = (data.results || []).find((item) => item.slug === slug);
+    return [Boolean(row?.featured_image_id), Boolean(row?.case_study_media_id)];
+  }, projectSlug);
+  check('project image selections persist in D1', storedProjectImages.every(Boolean), storedProjectImages.join(','));
   const [caseStudy] = await Promise.all([
     context.waitForEvent('page'),
     page.locator('a:has-text("Preview case study")').click(),
@@ -406,7 +446,72 @@ const run = async () => {
   check('project preview opens the public case study', caseStudy.url().includes(`/work/${projectSlug}/`), caseStudy.url());
   const caseTitle = await caseStudy.locator('h1').innerText();
   check('case study shows the project title', caseTitle.includes('QA Project'), caseTitle.trim());
+  const caseLeadImage = caseStudy.locator('.post-thumbnail img');
+  const caseLeadSrc = await caseLeadImage.getAttribute('src');
+  check('saved case study image is visible publicly', Boolean(caseLeadSrc?.startsWith('/media/')) && await caseLeadImage.evaluate((img) => img.complete && img.naturalWidth > 0));
+  check('saved project gallery renders publicly', await caseStudy.locator('.gallery-grid img').count() >= 2);
+  const publicHome = await context.newPage();
+  await publicHome.goto(`${baseUrl}/?qa=${stamp}`, { waitUntil: 'domcontentloaded' });
+  const projectCardImage = publicHome.locator(`.project-card__media[href="/work/${projectSlug}/"] img`);
+  const originalCardSrc = await projectCardImage.getAttribute('src');
+  await projectCardImage.scrollIntoViewIfNeeded();
+  await projectCardImage.evaluate((img) => img.decode());
+  check('saved project card image is visible on the homepage', Boolean(originalCardSrc?.startsWith('/media/')) && await projectCardImage.evaluate((img) => img.complete && img.naturalWidth > 0));
+  await publicHome.close();
   await caseStudy.close();
+
+  const featuredPicker = page.locator('[data-project-form] [data-picker]').first();
+  await featuredPicker.locator('[data-picker-clear]').click();
+  await page.click('[data-project-form] button[type="submit"]');
+  check('project saved after removing card image', Boolean(await toast(page, 'Project saved')));
+  await page.waitForTimeout(700);
+  const publicHomeAfterRemove = await context.newPage();
+  await publicHomeAfterRemove.goto(`${baseUrl}/?qa=${stamp}-removed`, { waitUntil: 'domcontentloaded' });
+  check('removing project card image restores its public placeholder', await publicHomeAfterRemove.locator(`.project-card__media[href="/work/${projectSlug}/"] .project-card__placeholder`).isVisible());
+  await publicHomeAfterRemove.close();
+
+  const chooseFeatured = page.waitForSelector(`.admin-modal [data-media]`);
+  await featuredPicker.locator('[data-picker-choose]').click();
+  await chooseFeatured;
+  await page.locator('.admin-modal [data-media]').filter({ hasText: featuredFileName }).first().locator('.admin-media-card__name').click();
+  await page.click('[data-project-form] button[type="submit"]');
+  check('selected project card image saved', Boolean(await toast(page, 'Project saved')));
+  await page.waitForTimeout(700);
+  const replacementFileName = `qa-featured-replacement-${stamp}.png`;
+  const replacementChooser = page.waitForEvent('filechooser', { timeout: 12000 });
+  await featuredPicker.locator('[data-picker-upload]').click();
+  await (await replacementChooser).setFiles({ name: replacementFileName, mimeType: 'image/png', buffer: PIXEL_PNG });
+  await page.click('[data-project-form] button[type="submit"]');
+  check('replacement project card image saved', Boolean(await toast(page, 'Project saved')));
+  await page.waitForTimeout(700);
+  const replacedHome = await context.newPage();
+  await replacedHome.goto(`${baseUrl}/?qa=${stamp}-replaced`, { waitUntil: 'domcontentloaded' });
+  const replacedCardImage = replacedHome.locator(`.project-card__media[href="/work/${projectSlug}/"] img`);
+  const replacedCardSrc = await replacedCardImage.getAttribute('src');
+  await replacedCardImage.scrollIntoViewIfNeeded();
+  await replacedCardImage.evaluate((img) => img.decode());
+  check('replacement project card image is visible publicly', Boolean(replacedCardSrc?.startsWith('/media/')) && replacedCardSrc !== originalCardSrc && await replacedCardImage.evaluate((img) => img.complete && img.naturalWidth > 0));
+  await replacedHome.close();
+
+  const caseStudyPicker = page.locator('[data-project-form] [data-picker]').nth(1);
+  await caseStudyPicker.locator('[data-picker-clear]').click();
+  await page.click('[data-project-form] button[type="submit"]');
+  check('project saved after removing case study image', Boolean(await toast(page, 'Project saved')));
+  await page.waitForTimeout(700);
+  const caseStudyFallback = await context.newPage();
+  await caseStudyFallback.goto(`${baseUrl}/work/${projectSlug}/?qa=${stamp}-fallback`, { waitUntil: 'domcontentloaded' });
+  check('removing case study image restores the project card image fallback', await caseStudyFallback.locator('.post-thumbnail img').getAttribute('src') === replacedCardSrc);
+  await caseStudyFallback.close();
+
+  while (await page.locator('[data-gallery-item]').count()) {
+    await page.locator('[data-gallery-item]').first().locator('[data-gal-remove]').click();
+    await page.waitForTimeout(300);
+  }
+  const galleryAfterRemove = await context.newPage();
+  await galleryAfterRemove.goto(`${baseUrl}/work/${projectSlug}/?qa=${stamp}-gallery-removed`, { waitUntil: 'domcontentloaded' });
+  check('removing project gallery restores the no-gallery state', await galleryAfterRemove.locator('#abd-gallery').count() === 0);
+  await galleryAfterRemove.close();
+
   await page.fill('[data-project-form] textarea[name="short_description"]', 'QA short description edited');
   await page.click('[data-project-form] button[type="submit"]');
   await toast(page, 'Project saved');
@@ -417,6 +522,18 @@ const run = async () => {
   await page.waitForURL('**/admin/projects', { timeout: 12000 });
   await page.waitForTimeout(500);
   check('project deleted', (await page.locator(`.admin-table:has-text("${projectName}")`).count()) === 0, projectName);
+  await nav(page, '/admin/media');
+  for (const fileName of [...galleryFiles.map((file) => file.name), featuredFileName, caseStudyFileName, replacementFileName]) {
+    const card = page.locator('[data-media-card]').filter({ hasText: fileName }).first();
+    if (!(await card.count())) continue;
+    await card.locator('[data-media-delete]').click();
+    await confirmYes(page);
+  }
+  await page.waitForFunction(
+    (runStamp) => ![...document.querySelectorAll('[data-media-card]')].some((card) => (card.textContent || '').includes(runStamp)),
+    stamp,
+  );
+  check('project image QA media cleaned up', await page.locator('[data-media-card]').filter({ hasText: stamp }).count() === 0);
   /* --------------------------------------------------- simple collections */
   const collectionFlow = async (href, resource, fields) => {
     await nav(page, href);

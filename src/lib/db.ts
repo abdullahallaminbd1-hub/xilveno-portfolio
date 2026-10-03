@@ -36,6 +36,13 @@ export const projects = async (env: Env, options: { featured?: boolean; category
 export const projectBySlug = async (env: Env, slug: string): Promise<ProjectRow | null> =>
   env.DB.prepare('SELECT p.*, c.name AS category_name FROM projects p LEFT JOIN categories c ON c.id = p.category_id WHERE p.slug = ? AND p.published = 1').bind(slug).first<ProjectRow>();
 
+export const projectGallery = async (env: Env, projectId: number): Promise<MediaRow[]> => {
+  const result = await env.DB.prepare('SELECT m.id, m.object_key, m.filename, m.mime_type, m.byte_size, m.width, m.height, m.alt_text, m.etag FROM project_gallery pg JOIN media m ON m.id = pg.media_id WHERE pg.project_id = ? ORDER BY pg.sort_order ASC, m.id ASC')
+    .bind(projectId)
+    .all<MediaRow>();
+  return result.results || [];
+};
+
 export const mediaById = async (env: Env, id: unknown): Promise<MediaRow | null> => {
   const numeric = Number(id);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;

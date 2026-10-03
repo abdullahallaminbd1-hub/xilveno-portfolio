@@ -182,7 +182,7 @@ const adminInquiries = async (request: Request, env: Env): Promise<Response> => 
 };
 
 const demoValues = (fields: string[], body: JsonRecord): unknown[] => fields.map((field) => (
-  ['category_id', 'screenshot_media_id'].includes(field)
+  field === 'category_id'
     ? (body[field] ? intValue(body, field) : null)
     : field === 'sort_order' ? intValue(body, field) : stringValue(body, field)
 ));
@@ -190,7 +190,7 @@ const demoValues = (fields: string[], body: JsonRecord): unknown[] => fields.map
 const adminDemos = async (request: Request, env: Env): Promise<Response> => {
   const session = await requireSession(request, env);
   if (request.method === 'GET') return jsonResponse(await listRows<JsonRecord>(env, 'demos', '1 = 1', 'sort_order ASC'));
-  requireCsrf(request, session); const body = await readBody(request); const fields = ['name', 'slug', 'subdomain', 'description', 'status', 'live_url', 'screenshot_media_id', 'category_id', 'sort_order'];
+  requireCsrf(request, session); const body = await readBody(request); const fields = ['name', 'slug', 'subdomain', 'description', 'status', 'live_url', 'category_id', 'sort_order'];
   const id = intValue(body, 'id');
   if (request.method === 'DELETE') {
     if (!id) return jsonResponse({ error: 'id is required.' }, 400);
@@ -233,7 +233,7 @@ const adminSettings = async (request: Request, env: Env): Promise<Response> => {
   if (request.method === 'GET') return jsonResponse(await settings(env));
   requireCsrf(request, session);
   const body = await readBody(request);
-  const allowed = ['site_name', 'tagline', 'email', 'phone', 'whatsapp', 'location', 'seo_title', 'seo_home_description', 'default_og_image', 'canonical_base', 'robots_mode', 'privacy_url', 'terms_url', 'social_links', 'logo_media_id', 'favicon_media_id', 'about_image_media_id', 'cta_image_media_id', 'hero_image_media_id', 'featured_case_study_id'];
+  const allowed = ['site_name', 'tagline', 'email', 'phone', 'whatsapp', 'location', 'seo_title', 'seo_home_description', 'default_og_image', 'canonical_base', 'robots_mode', 'privacy_url', 'terms_url', 'social_links', 'favicon_media_id', 'about_image_media_id'];
   const socialKeys = ['facebook', 'instagram', 'linkedin', 'behance', 'dribbble', 'other'];
   const social = socialKeys.reduce<Record<string, string>>((result, key) => { if (body[key] !== undefined) result[key] = stringValue(body, key); return result; }, {});
   if (body.social_links !== undefined) {
@@ -298,13 +298,10 @@ const adminProjectGallery = async (request: Request, env: Env): Promise<Response
 const mediaObject = async (request: Request, env: Env, key: string): Promise<Response> => { const object = await env.MEDIA.get(decodeURIComponent(key)); if (!object) return textResponse('Not found', 404); const headers = new Headers(); object.writeHttpMetadata(headers); headers.set('etag', object.httpEtag); headers.set('Cache-Control', 'public, max-age=31536000, immutable'); return new Response(object.body, { headers }); };
 
 /**
- * Serves the site favicon. When a favicon has been chosen in the admin panel
- * (settings.favicon_media_id -> R2 object) it is used, otherwise the built-in
- * SVG icon that ships with the static assets is served. Redirecting keeps the
- * public HTML byte-identical apart from the href.
+ * Serves the selected site favicon or the built-in SVG fallback.
  */
-const brandingAsset = async (request: Request, env: Env, kind: 'favicon' | 'logo'): Promise<Response> => {
-  const settingKey = kind === 'logo' ? 'logo_media_id' : 'favicon_media_id';
+const brandingAsset = async (request: Request, env: Env): Promise<Response> => {
+  const settingKey = 'favicon_media_id';
   const fallback = '/assets/images/favicon.svg';
   const id = await setting(env, settingKey, '');
   const media = id ? await mediaById(env, id) : null;
@@ -344,7 +341,7 @@ export default {
       const requestUrl = new URL(request.url); const pathname = requestUrl.pathname.replace(/\/+/g, '/');
       if (pathname.startsWith('/api/')) return await handleApi(request, env, pathname);
       if (pathname.startsWith('/admin')) { if (pathname === '/admin' || pathname === '/admin/') return Response.redirect(new URL('/admin/dashboard', request.url), 302); return adminPage(pathname); }
-      if (pathname === '/branding/favicon' || pathname === '/branding/logo') return brandingAsset(request, env, pathname.endsWith('logo') ? 'logo' : 'favicon');
+      if (pathname === '/branding/favicon') return brandingAsset(request, env);
       if (pathname.startsWith('/media/')) return mediaObject(request, env, pathname.slice('/media/'.length));
       if (pathname === '/') return renderHome(env, requestUrl);
       if (pathname === '/work' || pathname === '/work/') return renderWork(env, requestUrl);

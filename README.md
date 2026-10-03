@@ -43,6 +43,22 @@ npm run typecheck
 npx wrangler deploy --dry-run
 ```
 
+The local browser round-trip check exercises each homepage/About editor field against the public page, verifies About portrait upload/select/replace/remove, and restores the original content. Set `QA_PASSWORD` to the local admin password, then run:
+
+```powershell
+node scripts/qa-admin-public-content.mjs --url=http://127.0.0.1:8790
+```
+
+Production Admin browser checks use real Chrome, verify the homepage/About fields and image lifecycle, and exercise reversible Service, FAQ, Settings, project-image, and Media alt-text edits. These checks temporarily update public content and create a project with test images; the script restores or deletes its test data. Use a protected local password file and do not pass the production password as a command-line argument:
+
+```powershell
+$env:QA_PASSWORD_FILE = 'C:\secure\production-admin-password.txt'
+node scripts/qa-admin-public-content.mjs --url=https://xilveno.shop --channel=chrome
+node scripts/qa-admin-production-roundtrip.mjs --url=https://xilveno.shop --channel=chrome
+node scripts/qa-admin-responsive.mjs --url=https://xilveno.shop --channel=chrome --out='C:\temp\xilveno-responsive'
+Remove-Item Env:QA_PASSWORD_FILE
+```
+
 `.dev.vars` is ignored by Git. Replace its local bootstrap password before using the admin. Never copy local secrets to GitHub or production source.
 
 ## D1 setup
@@ -104,7 +120,7 @@ The first request with `ADMIN_BOOTSTRAP_PASSWORD` creates `admin@xilveno.shop`. 
 
 ## Editable content
 
-The D1 model covers homepage hero/panel/technology strip/headings/CTA/about blocks, services and details, skills, process steps, FAQs, projects, categories, settings, SEO, inquiries, demo records, and media metadata. The visual system remains code-based; admin changes content, not arbitrary CSS/layout.
+The D1 model covers homepage hero/panel/technology strip/headings/CTA/about blocks, the About portrait setting, services and details, skills, process steps, FAQs, projects, categories, settings, SEO, inquiries, demo records, and media metadata. Image pickers are connected only to slots rendered by the public site: the About portrait uses `about_image_media_id` and falls back to the public placeholder when cleared; project card, case-study lead, and gallery images render from their project media records. Public server-rendered pages are not cached, so saved D1/R2 content appears on the next page load. The visual system remains code-based; admin changes content, not arbitrary CSS/layout.
 
 ## Demo subdomains
 

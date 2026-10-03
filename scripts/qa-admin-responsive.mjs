@@ -48,6 +48,9 @@ const VIEWPORTS = [
 const SCREENS = [
   ['dashboard', '/admin/dashboard', '.admin-stat'],
   ['home-editor', '/admin/home', '[data-home-form]'],
+  ['about-editor', '/admin/about', '[data-about-form]'],
+  ['services', '/admin/services', '[data-add-card]'],
+  ['faq', '/admin/faq', '[data-add-card]'],
   ['projects', '/admin/projects', '.admin-card'],
   ['project-new', '/admin/projects/new', '[data-project-form]'],
   ['media', '/admin/media', '[data-dropzone]'],

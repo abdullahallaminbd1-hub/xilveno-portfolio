@@ -502,7 +502,7 @@
   const HOME_SECTIONS = [
     {
       id: 'hero', label: 'Hero', icon: 'layout', stage: 'hero', key: 'hero',
-      summary: 'The first thing visitors see: eyebrow, heading, description, buttons, side panel and the tech stack strip.',
+      summary: 'The first thing visitors see: eyebrow, heading, description, buttons and side panel.',
       groups: [
         { legend: 'Heading', fields: [
           { name: 'eyebrow', label: 'Eyebrow', type: 'text', hint: 'The small label above the heading.' },
@@ -519,11 +519,7 @@
           { name: 'panel_title', label: 'Panel heading', type: 'text' },
           { name: 'panel_points', label: 'Panel bullet points', type: 'list', rows: 4, hint: 'One point per line.' },
         ] },
-        { legend: 'Tech stack strip', fields: [
-          { name: 'tech_strip', label: 'Technologies under the hero', type: 'list', rows: 3, hint: 'One technology per line. This is the tech stack row on the live site.' },
-        ] },
       ],
-      images: [{ name: 'hero_image_media_id', label: 'Hero image', hint: 'Saved to your media library. The approved hero layout is text-only, so this image is stored for reuse.' }],
     },
     {
       id: 'tech-stack', label: 'Tech stack', icon: 'code', stage: 'hero', key: 'hero', focus: 'tech_strip',
@@ -548,7 +544,7 @@
     },
     {
       id: 'work', label: 'Selected work', icon: 'monitor', stage: 'work', key: 'work_heading',
-      summary: 'The heading above the featured projects. Which projects appear is controlled by the “Featured” switch on each project.',
+      summary: 'The heading and featured project cards shown on the homepage. Edit the card content and Featured switch in Projects.',
       groups: [
         { legend: 'Section heading', fields: [
           { name: 'eyebrow', label: 'Eyebrow', type: 'text' },
@@ -556,19 +552,7 @@
           { name: 'text', label: 'Supporting text', type: 'area', rows: 3 },
         ] },
       ],
-      manage: { label: 'Manage projects and the featured switch', href: '/admin/projects' },
-    },
-    {
-      id: 'featured', label: 'Featured case study', icon: 'sparkle', stage: 'work', key: 'work_heading',
-      summary: 'The homepage highlights your featured projects. Turn on “Featured” for the case study you want to lead with.',
-      groups: [
-        { legend: 'Section heading', fields: [
-          { name: 'eyebrow', label: 'Eyebrow', type: 'text' },
-          { name: 'title', label: 'Heading', type: 'text' },
-          { name: 'text', label: 'Supporting text', type: 'area', rows: 3 },
-        ] },
-      ],
-      manage: { label: 'Choose featured projects', href: '/admin/projects' },
+      manage: { label: 'Manage selected work and featured projects', href: '/admin/projects' },
     },
     {
       id: 'problems', label: 'Why it matters', icon: 'warning', stage: 'problems', key: 'problems_heading',
@@ -634,7 +618,6 @@
           { name: 'cta2_url', label: 'Secondary button link', type: 'text' },
         ] },
       ],
-      images: [{ name: 'cta_image_media_id', label: 'Call to action image', hint: 'Optional. Stored in the media library for layouts that support an image in this band.' }],
     },
   ];
   const sectionFieldMarkup = (field, value) => {
@@ -1030,11 +1013,8 @@
         </div>
       </section>
       <section class="admin-card">
-        <div class="admin-card__head"><div><h3>Images</h3><p>Saved to your media library.</p></div></div>
-        <div class="admin-split">
-          ${pickerField({ name: 'about_image_media_id', label: 'Profile / about image', value: siteSettings.about_image_media_id || '', hint: 'The approved about layout currently shows a placeholder, so this image is stored and used when the layout renders one.' })}
-          ${pickerField({ name: 'logo_media_id', label: 'Logo', value: siteSettings.logo_media_id || '', hint: 'Stored in the media library. The approved header uses a text wordmark.' })}
-        </div>
+        <div class="admin-card__head"><div><h3>Portrait</h3><p>Shown in the portrait frame on the public About page.</p></div></div>
+        ${pickerField({ name: 'about_image_media_id', label: 'About page portrait', value: siteSettings.about_image_media_id || '', hint: 'Choose an existing image or upload one. Removing it restores the default portrait placeholder.' })}
       </section>
       <div class="admin-card">
         <div class="admin-card__head"><div><h3>Related content</h3><p>The about page also lists your skills.</p></div></div>
@@ -1072,7 +1052,7 @@
             })).filter((item) => item.title || item.text),
           };
           await request('/api/admin/home', { method: 'POST', body: JSON.stringify({ about: payload }) });
-          await request('/api/admin/settings', { method: 'PUT', body: JSON.stringify({ about_image_media_id: controlValue(getField(form, 'about_image_media_id'), ''), logo_media_id: controlValue(getField(form, 'logo_media_id'), '') }) });
+          await request('/api/admin/settings', { method: 'PUT', body: JSON.stringify({ about_image_media_id: controlValue(getField(form, 'about_image_media_id'), '') }) });
           say('About page saved.');
         } catch (error) { say(error.message, true); }
       });
@@ -1201,15 +1181,15 @@
     const content = `<form class="admin-stack" data-project-form novalidate>
       ${groupCards}
       <section class="admin-card">
-        <div class="admin-card__head"><div><h3>Category and featured image</h3><p>The featured image is used wherever the site shows a project image.</p></div></div>
+        <div class="admin-card__head"><div><h3>Category and project card image</h3><p>The image appears on the homepage and Work cards. It is also the case study lead image unless a separate lead image is selected.</p></div></div>
         <div class="admin-split">
           ${fieldSelect({ name: 'category_id', label: 'Category', value: row ? (row.category_id ?? '') : '', options: categoryOptions, hint: categories.length ? 'Groups the project on the work page.' : 'No categories yet — create one in Categories.' })}
-          ${pickerField({ name: 'featured_image_id', label: 'Featured image', value: row ? (row.featured_image_id ?? '') : '', hint: 'Shown on the project card where the layout supports it.' })}
+          ${pickerField({ name: 'featured_image_id', label: 'Project card image', value: row ? (row.featured_image_id ?? '') : '', hint: 'Shown on the homepage and Work page project cards.' })}
         </div>
       </section>
       <section class="admin-card">
-        <div class="admin-card__head"><div><h3>Case study image</h3><p>An optional lead image for the case study page.</p></div></div>
-        ${pickerField({ name: 'case_study_media_id', label: 'Case study image', value: row ? (row.case_study_media_id ?? '') : '', hint: 'Stored in the media library.' })}
+        <div class="admin-card__head"><div><h3>Case study lead image</h3><p>Optional; when selected this appears above the case study content instead of the project card image.</p></div></div>
+        ${pickerField({ name: 'case_study_media_id', label: 'Case study lead image', value: row ? (row.case_study_media_id ?? '') : '', hint: 'Remove it to use the project card image as the case study lead image.' })}
       </section>
       ${galleryCard}
       <div class="admin-card admin-card__head" style="margin-bottom:0">
@@ -1328,7 +1308,8 @@
       items = normalizeRows(await request(`/api/admin/project-gallery?project_id=${projectId}`));
     } catch { items = []; }
     paint();
-    root.querySelector('[data-gallery-add]')?.addEventListener('click', async () => {
+    const addButton = root.querySelector('[data-gallery-add]');
+    if (addButton) addButton.onclick = async () => {
       const picked = await openMediaLibrary({ title: 'Add images to the project gallery', multi: true });
       if (!picked.length) return;
       for (const pickedRow of picked) {
@@ -1336,7 +1317,7 @@
       }
       paint();
       await save();
-    });
+    };
   };
   /* --------------------------------------------------------- media page */
   const mediaCardMarkup = (row) => `<div class="admin-media-card" data-media-card="${esc(row.id)}">
@@ -1495,7 +1476,6 @@
         { name: 'tagline', label: 'Tagline', hint: 'A short line about what you do.' },
       ],
       images: [
-        { name: 'logo_media_id', label: 'Logo', hint: 'Stored in the media library. The approved header uses a text wordmark.' },
         { name: 'favicon_media_id', label: 'Favicon', hint: 'The small icon shown in browser tabs. Leave empty for the built-in icon.' },
       ],
     },
@@ -1731,14 +1711,12 @@
   const demoPayload = (form) => {
     const payload = {};
     for (const field of DEMO_FIELDS) payload[field.name] = controlValue(getField(form, field.name), '');
-    payload.screenshot_media_id = controlValue(getField(form, 'screenshot_media_id'), '');
     payload.category_id = controlValue(getField(form, 'category_id'), '');
     return payload;
   };
   const demoCardMarkup = (row, categoryOptions) => `<section class="admin-card admin-card--tight" data-demo="${esc(row.id)}">
     <div class="admin-card__head" style="margin-bottom:12px">
       <div class="admin-cell">
-        ${row.screenshot_media_id && mediaSrcById(row.screenshot_media_id) ? `<img class="admin-table__thumb" src="${esc(mediaSrcById(row.screenshot_media_id))}" alt="">` : ''}
         <div>
           <h3 style="font-size:16px">${esc(row.name)}</h3>
           <p class="admin-hint">${esc(row.subdomain || '')}</p>
@@ -1756,7 +1734,7 @@
     ${row.status === 'active' ? '' : '<p class="admin-inline-note admin-inline-note--warn" style="margin:0 0 12px">Subdomains are not created automatically. Add the DNS record and the Worker route in the Cloudflare dashboard first, then mark this demo as configured.</p>'}
     <form class="admin-form" data-demo-form data-id="${esc(row.id)}" hidden>
       <div class="admin-split">${DEMO_FIELDS.map((field) => demoFieldMarkup(field, row)).join('')}</div>
-      <div class="admin-split">${pickerField({ name: 'screenshot_media_id', label: 'Preview image', value: row.screenshot_media_id || '' })}${fieldSelect({ name: 'category_id', label: 'Category', value: row.category_id ?? '', options: categoryOptions })}</div>
+      ${fieldSelect({ name: 'category_id', label: 'Category', value: row.category_id ?? '', options: categoryOptions })}
       <div class="admin-actions"><button class="admin-button" type="submit">Save demo</button><button class="admin-button secondary" type="button" data-demo-cancel>Cancel</button></div>
     </form>
   </section>`;
@@ -1770,7 +1748,7 @@
       <div class="admin-card__head"><div><h3>Add a demo site</h3><p>Demo sites are listed for reference. Creating the subdomain itself happens in the Cloudflare dashboard.</p></div></div>
       <form class="admin-form" data-demo-form data-id="" novalidate>
         <div class="admin-split">${DEMO_FIELDS.map((field) => demoFieldMarkup(field, null)).join('')}</div>
-        <div class="admin-split">${pickerField({ name: 'screenshot_media_id', label: 'Preview image', value: '' })}${fieldSelect({ name: 'category_id', label: 'Category', value: '', options: categoryOptions })}</div>
+        ${fieldSelect({ name: 'category_id', label: 'Category', value: '', options: categoryOptions })}
         <div class="admin-actions"><button class="admin-button" type="submit">${icon('plus', 16)} Add demo</button></div>
       </form>
     </section>
