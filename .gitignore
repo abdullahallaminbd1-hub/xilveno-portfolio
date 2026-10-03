@@ -11,6 +11,10 @@ dist/
 coverage/
 playwright-report/
 test-results/
+.qa-admin/
+.qa-admin-flows/
+.qa-admin-responsive/
+.qa-public/
 *.log
 *.pid
 *.png

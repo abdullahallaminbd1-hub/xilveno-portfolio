@@ -6,7 +6,7 @@ compatibility_date = "2026-10-02"
 directory = "./src/public"
 binding = "ASSETS"
 not_found_handling = "404-page"
-run_worker_first = ["/api/*", "/admin/*", "/media/*", "/work/*", "/about/*", "/services/*", "/process/*", "/faq/*", "/contact/*", "/search*", "/sitemap.xml", "/robots.txt"]
+run_worker_first = ["/api/*", "/admin/*", "/media/*", "/branding/*", "/work/*", "/about/*", "/services/*", "/process/*", "/faq/*", "/contact/*", "/search*", "/sitemap.xml", "/robots.txt"]
 
 [[d1_databases]]
 binding = "DB"

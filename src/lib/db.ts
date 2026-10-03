@@ -1,4 +1,4 @@
-import type { Env, JsonRecord, PageRow, ProjectRow, SettingRow } from '../types';
+import type { Env, JsonRecord, MediaRow, PageRow, ProjectRow, SettingRow } from '../types';
 
 export const json = <T>(value: string, fallback: T): T => {
   try { return JSON.parse(value) as T; } catch { return fallback; }
@@ -35,6 +35,17 @@ export const projects = async (env: Env, options: { featured?: boolean; category
 
 export const projectBySlug = async (env: Env, slug: string): Promise<ProjectRow | null> =>
   env.DB.prepare('SELECT p.*, c.name AS category_name FROM projects p LEFT JOIN categories c ON c.id = p.category_id WHERE p.slug = ? AND p.published = 1').bind(slug).first<ProjectRow>();
+
+export const mediaById = async (env: Env, id: unknown): Promise<MediaRow | null> => {
+  const numeric = Number(id);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return await env.DB.prepare('SELECT id, object_key, filename, mime_type, byte_size, width, height, alt_text, etag FROM media WHERE id = ?')
+    .bind(numeric)
+    .first<MediaRow>();
+};
+
+export const mediaUrl = (row: MediaRow | null | undefined): string =>
+  row ? `/media/${encodeURIComponent(row.object_key)}` : '';
 
 export const listRows = async <T>(env: Env, table: string, where = '1 = 1', order = 'sort_order ASC'): Promise<T[]> => {
   const allowed = new Set(['skills', 'services', 'problems', 'process_steps', 'faqs', 'categories', 'navigation', 'inquiries', 'media', 'demos']);

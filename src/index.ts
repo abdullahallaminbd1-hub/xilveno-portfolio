@@ -1,7 +1,8 @@
 import type { Env, JsonRecord, ProjectRow, Session } from './types';
-import { listRows, projects, section, settings } from './lib/db';
+import { listRows, mediaById, projects, section, setting, settings } from './lib/db';
 import { canAttemptLogin, clearSessionCookie, createSession, deleteSession, ensureAdmin, getSession, HttpError, isSecureRequest, recordLoginAttempt, requireCsrf, requireSession, sessionCookie, verifyPassword } from './lib/security';
 import { esc, render404, renderHome, renderPage, renderProject, renderSearch, renderWork } from './lib/html';
+import { ADMIN_CSS } from './lib/admin-css';
 
 const jsonResponse = (data: unknown, status = 200, extra: HeadersInit = {}): Response => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...extra } });
 const textResponse = (data: string, status = 200, headers: HeadersInit = {}): Response => new Response(data, { status, headers });
@@ -117,6 +118,7 @@ const tableConfig: Record<string, { table: string; fields: string[]; required: s
   faqs: { table: 'faqs', fields: ['question', 'answer', 'sort_order', 'active'], required: ['question', 'answer'] },
   process: { table: 'process_steps', fields: ['title', 'description', 'sort_order', 'active'], required: ['title'] },
   skills: { table: 'skills', fields: ['title', 'description', 'icon', 'sort_order', 'active'], required: ['title'] },
+  problems: { table: 'problems', fields: ['title', 'description', 'sort_order', 'active'], required: ['title'] },
   categories: { table: 'categories', fields: ['name', 'slug', 'description', 'sort_order'], required: ['name', 'slug'] },
 };
 
@@ -179,10 +181,16 @@ const adminInquiries = async (request: Request, env: Env): Promise<Response> => 
   return jsonResponse({ error: 'Method not allowed.' }, 405);
 };
 
+const demoValues = (fields: string[], body: JsonRecord): unknown[] => fields.map((field) => (
+  ['category_id', 'screenshot_media_id'].includes(field)
+    ? (body[field] ? intValue(body, field) : null)
+    : field === 'sort_order' ? intValue(body, field) : stringValue(body, field)
+));
+
 const adminDemos = async (request: Request, env: Env): Promise<Response> => {
   const session = await requireSession(request, env);
   if (request.method === 'GET') return jsonResponse(await listRows<JsonRecord>(env, 'demos', '1 = 1', 'sort_order ASC'));
-  requireCsrf(request, session); const body = await readBody(request); const fields = ['name', 'slug', 'subdomain', 'description', 'status', 'live_url', 'category_id', 'sort_order'];
+  requireCsrf(request, session); const body = await readBody(request); const fields = ['name', 'slug', 'subdomain', 'description', 'status', 'live_url', 'screenshot_media_id', 'category_id', 'sort_order'];
   const id = intValue(body, 'id');
   if (request.method === 'DELETE') {
     if (!id) return jsonResponse({ error: 'id is required.' }, 400);
@@ -190,18 +198,34 @@ const adminDemos = async (request: Request, env: Env): Promise<Response> => {
     await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').bind(session.admin_id, 'delete', 'demos', id).run();
     return jsonResponse({ ok: true });
   }
+  if (request.method === 'PUT' || request.method === 'PATCH') {
+    if (!id) return jsonResponse({ error: 'id is required.' }, 400);
+    const provided = fields.filter((field) => body[field] !== undefined);
+    if (!provided.length) return jsonResponse({ error: 'No fields supplied.' }, 400);
+    // Only validate the identity fields when this request actually changes them,
+    // so a partial update such as "mark as configured" keeps working.
+    if (provided.some((field) => ['name', 'slug', 'subdomain'].includes(field))) {
+      const current = await env.DB.prepare('SELECT name, slug, subdomain FROM demos WHERE id = ?').bind(id).first<{ name: string; slug: string; subdomain: string }>();
+      if (!current) return jsonResponse({ error: 'Demo not found.' }, 404);
+      const name = body.name === undefined ? current.name : stringValue(body, 'name');
+      const slug = body.slug === undefined ? current.slug : stringValue(body, 'slug');
+      const subdomain = body.subdomain === undefined ? current.subdomain : stringValue(body, 'subdomain');
+      if (!name || !slug || !subdomain) return jsonResponse({ error: 'Name, slug, and subdomain are required.' }, 400);
+      if (!/^[a-z0-9-]+$/.test(slug) || !/^[a-z0-9-]+\.xilveno\.shop$/.test(subdomain)) return jsonResponse({ error: 'Use a slug and subdomain such as dental.xilveno.shop.' }, 400);
+    }
+    await env.DB.prepare(`UPDATE demos SET ${provided.map((field) => `${field} = ?`).join(', ')} WHERE id = ?`).bind(...demoValues(provided, body), id).run();
+    await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').bind(session.admin_id, 'update', 'demos', id).run();
+    return jsonResponse({ ok: true });
+  }
+  if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed.' }, 405);
   const name = stringValue(body, 'name'); const slug = stringValue(body, 'slug'); const subdomain = stringValue(body, 'subdomain');
   if (!name || !slug || !subdomain) return jsonResponse({ error: 'Name, slug, and subdomain are required.' }, 400);
   if (!/^[a-z0-9-]+$/.test(slug) || !/^[a-z0-9-]+\.xilveno\.shop$/.test(subdomain)) return jsonResponse({ error: 'Use a slug and subdomain such as dental.xilveno.shop.' }, 400);
-  if (request.method === 'POST') {
-    const duplicate = await env.DB.prepare('SELECT id FROM demos WHERE slug = ? OR subdomain = ?').bind(slug, subdomain).first<{ id: number }>();
-    if (duplicate) return jsonResponse({ error: 'That demo slug or subdomain is already in use.' }, 409);
-  }
-  const values = fields.map((field) => field === 'category_id' ? (body[field] ? intValue(body, field) : null) : field === 'sort_order' ? intValue(body, field) : stringValue(body, field));
-  if (request.method === 'POST') { await env.DB.prepare(`INSERT INTO demos (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`).bind(...values).run(); return jsonResponse({ ok: true }); }
-  if (!id) return jsonResponse({ error: 'id is required.' }, 400);
-  if (request.method === 'PUT' || request.method === 'PATCH') { await env.DB.prepare(`UPDATE demos SET ${fields.map((field) => `${field} = ?`).join(', ')} WHERE id = ?`).bind(...values, id).run(); return jsonResponse({ ok: true }); }
-  return jsonResponse({ error: 'Method not allowed.' }, 405);
+  const duplicate = await env.DB.prepare('SELECT id FROM demos WHERE slug = ? OR subdomain = ?').bind(slug, subdomain).first<{ id: number }>();
+  if (duplicate) return jsonResponse({ error: 'That demo slug or subdomain is already in use.' }, 409);
+  await env.DB.prepare(`INSERT INTO demos (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`).bind(...demoValues(fields, body)).run();
+  await env.DB.prepare('INSERT INTO audit_log (admin_id, action, entity) VALUES (?, ?, ?)').bind(session.admin_id, 'create', 'demos').run();
+  return jsonResponse({ ok: true });
 };
 
 const adminSettings = async (request: Request, env: Env): Promise<Response> => {
@@ -273,14 +297,28 @@ const adminProjectGallery = async (request: Request, env: Env): Promise<Response
 
 const mediaObject = async (request: Request, env: Env, key: string): Promise<Response> => { const object = await env.MEDIA.get(decodeURIComponent(key)); if (!object) return textResponse('Not found', 404); const headers = new Headers(); object.writeHttpMetadata(headers); headers.set('etag', object.httpEtag); headers.set('Cache-Control', 'public, max-age=31536000, immutable'); return new Response(object.body, { headers }); };
 
+/**
+ * Serves the site favicon. When a favicon has been chosen in the admin panel
+ * (settings.favicon_media_id -> R2 object) it is used, otherwise the built-in
+ * SVG icon that ships with the static assets is served. Redirecting keeps the
+ * public HTML byte-identical apart from the href.
+ */
+const brandingAsset = async (request: Request, env: Env, kind: 'favicon' | 'logo'): Promise<Response> => {
+  const settingKey = kind === 'logo' ? 'logo_media_id' : 'favicon_media_id';
+  const fallback = '/assets/images/favicon.svg';
+  const id = await setting(env, settingKey, '');
+  const media = id ? await mediaById(env, id) : null;
+  if (media) return Response.redirect(new URL(`/media/${encodeURIComponent(media.object_key)}`, request.url).toString(), 302);
+  return env.ASSETS.fetch(new Request(new URL(fallback, request.url).toString(), { headers: request.headers }));
+};
+
 const adminPage = (pathname: string): Response => {
-  const title = pathname === '/admin/login' ? 'Admin login' : 'Portfolio admin';
   const login = pathname === '/admin/login';
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title><style>${ADMIN_CSS}</style></head><body class="admin-body"><main class="admin-shell"><div id="admin-app" data-login="${login ? 'true' : 'false'}" data-page="${esc(pathname)}"></div></main><script type="module" src="/assets/js/admin.js"></script></body></html>`;
+  const title = login ? 'Sign in · Xilveno admin' : 'Xilveno admin';
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>${title}</title><link rel="icon" href="/branding/favicon"><style>${ADMIN_CSS}</style></head><body class="admin-body"><div id="admin-app" data-login="${login ? 'true' : 'false'}" data-page="${esc(pathname)}"><div class="admin-shell"><div class="admin-card">Loading the admin panel…</div></div></div><script type="module" src="/assets/js/admin.js"></script></body></html>`;
   return textResponse(html, 200, { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' });
 };
 
-const ADMIN_CSS = `:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f7f8fc}*{box-sizing:border-box}body{margin:0}.admin-shell{max-width:1320px;margin:0 auto;padding:24px}.admin-card{background:#fff;border:1px solid #e4e9f2;border-radius:14px;padding:24px;box-shadow:0 8px 28px rgba(11,18,32,.06)}.admin-login{max-width:460px;margin:12vh auto}.admin-layout{display:grid;grid-template-columns:230px 1fr;gap:24px}.admin-sidebar{background:#070c18;color:#cbd5e8;border-radius:14px;padding:20px;height:max-content;position:sticky;top:24px}.admin-sidebar h1{color:#fff;font-size:20px;margin:0 0 24px}.admin-sidebar a,.admin-sidebar button{display:block;width:100%;padding:10px 12px;border:0;background:none;color:#cbd5e8;text-align:left;text-decoration:none;border-radius:8px;cursor:pointer;font:inherit}.admin-sidebar a:hover,.admin-sidebar button:hover{background:rgba(255,255,255,.08);color:#fff}.admin-main{min-width:0}.admin-top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:20px}.admin-top h2{margin:0}.admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}.admin-stat strong{display:block;font-size:32px;color:#0b1220}.admin-stat span{color:#6b7690;font-size:14px}.admin-form{display:grid;gap:14px}.admin-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.admin-label{display:grid;gap:6px;font-weight:600;font-size:14px}.admin-input,.admin-textarea,.admin-select{width:100%;border:1px solid #d3dae8;border-radius:8px;padding:10px 12px;font:inherit;color:#172033;background:#fff}.admin-textarea{min-height:130px;resize:vertical}.admin-button{border:0;border-radius:8px;padding:10px 14px;background:#2563eb;color:#fff;font:inherit;font-weight:700;cursor:pointer}.admin-button.secondary{background:#fff;color:#172033;border:1px solid #d3dae8}.admin-button.danger{background:#dc2626}.admin-table{width:100%;border-collapse:collapse}.admin-table th,.admin-table td{text-align:left;padding:12px 8px;border-bottom:1px solid #e4e9f2;vertical-align:top}.admin-message{padding:12px;border-radius:8px;background:#eef2f9;margin-bottom:16px}.admin-error{background:#fef2f2;color:#991b1b}.admin-success{background:#f0fdf4;color:#166534}.admin-hint{color:#6b7690;font-size:13px;font-weight:400}.admin-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0 0}.admin-check{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14px}.admin-check input{width:18px;height:18px;accent-color:#2563eb}.admin-sidebar a[aria-current="page"]{background:#2563eb;color:#fff}.admin-repeater{gap:12px}.admin-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}.admin-media-card{background:#fff;border:1px solid #e4e9f2;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 28px rgba(11,18,32,.06)}.admin-media-card>img{width:100%;height:130px;object-fit:cover;background:#eef2f9;display:block}.admin-media-card .admin-media-body{padding:12px;display:grid;gap:8px;font-size:13px}.admin-media-card .admin-actions{flex-wrap:wrap}.admin-media-card .admin-button{padding:7px 10px;font-size:12px}.admin-picker{display:grid;gap:8px}.admin-picker-preview{min-height:70px;border:1px dashed #d3dae8;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#f7f8fc}.admin-picker-preview img{max-width:100%;max-height:150px;object-fit:contain}.admin-picker-actions{display:flex;gap:8px;flex-wrap:wrap}.admin-picker-actions .admin-button{padding:7px 10px;font-size:12px}.admin-modal{position:fixed;inset:0;background:rgba(7,12,24,.6);display:flex;align-items:center;justify-content:center;padding:24px;z-index:50}.admin-modal__panel{background:#fff;border-radius:14px;padding:20px;max-width:920px;width:100%;max-height:80vh;overflow:auto}.admin-modal__head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}@media(max-width:800px){.admin-layout{grid-template-columns:1fr}.admin-sidebar{position:static}.admin-row{grid-template-columns:1fr}.admin-media-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}`;
 
 const handleApi = async (request: Request, env: Env, pathname: string): Promise<Response> => {
   if (pathname === '/api/inquiries') return handleInquiry(request, env);
@@ -294,7 +332,7 @@ const handleApi = async (request: Request, env: Env, pathname: string): Promise<
   if (pathname === '/api/admin/demos') return adminDemos(request, env);
   if (pathname.startsWith('/api/admin/media')) return adminMedia(request, env);
   if (pathname === '/api/admin/project-gallery') return adminProjectGallery(request, env);
-  const collectionMatch = pathname.match(/^\/api\/admin\/(services|faqs|process|skills|categories)$/); if (collectionMatch) return adminCollection(request, env, collectionMatch[1]);
+  const collectionMatch = pathname.match(/^\/api\/admin\/(services|faqs|process|skills|categories|problems)$/); if (collectionMatch) return adminCollection(request, env, collectionMatch[1]);
   if (pathname === '/api/admin/home') { const session = await requireSession(request, env); if (request.method === 'GET') { const keys = ['hero', 'services_heading', 'problems_heading', 'work_heading', 'process_heading', 'skills_heading', 'faq_heading', 'cta', 'about']; const result: Record<string, unknown> = {}; for (const key of keys) result[key] = await section(env, key, {}); return jsonResponse(result); } requireCsrf(request, session); const body = await readBody(request); for (const [key, value] of Object.entries(body)) if (['hero', 'services_heading', 'problems_heading', 'work_heading', 'process_heading', 'skills_heading', 'faq_heading', 'cta', 'about'].includes(key)) await env.DB.prepare('INSERT OR REPLACE INTO home_sections (section_key, content_json, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').bind(key, typeof value === 'string' ? value : JSON.stringify(value)).run(); return jsonResponse({ ok: true }); }
   return jsonResponse({ error: 'Not found.' }, 404);
 };
@@ -306,6 +344,7 @@ export default {
       const requestUrl = new URL(request.url); const pathname = requestUrl.pathname.replace(/\/+/g, '/');
       if (pathname.startsWith('/api/')) return await handleApi(request, env, pathname);
       if (pathname.startsWith('/admin')) { if (pathname === '/admin' || pathname === '/admin/') return Response.redirect(new URL('/admin/dashboard', request.url), 302); return adminPage(pathname); }
+      if (pathname === '/branding/favicon' || pathname === '/branding/logo') return brandingAsset(request, env, pathname.endsWith('logo') ? 'logo' : 'favicon');
       if (pathname.startsWith('/media/')) return mediaObject(request, env, pathname.slice('/media/'.length));
       if (pathname === '/') return renderHome(env, requestUrl);
       if (pathname === '/work' || pathname === '/work/') return renderWork(env, requestUrl);
