@@ -381,13 +381,12 @@ export const handleDentalAdminApi = async (request: Request, env: Env, pathname:
   if (pathname === `${base}/slots` && request.method === 'GET') return imageSlots(env);
   if (pathname === `${base}/media`) {
     if (request.method === 'GET') return listMedia(request, env);
-    if (request.method === 'POST') return uploadFile(request, env, session);
+    if (request.method === 'POST' || request.method === 'PUT') return uploadFile(request, env, session);
     return jsonResponse({ error: 'Method not allowed.' }, 405);
   }
   const previewMatch = pathname.match(/^\/api\/admin\/sites\/brightsmile\/media\/(\d+)\/preview$/);
   if (previewMatch && request.method === 'GET') return servePreview(env, Number(previewMatch[1]));
   const mediaMatch = pathname.match(/^\/api\/admin\/sites\/brightsmile\/media\/(\d+)$/);
-  if (mediaMatch && request.method === 'PUT') return uploadFile(request, env, session);
   if (mediaMatch) return deleteMedia(request, env, session, Number(mediaMatch[1]));
   const slotMatch = pathname.match(/^\/api\/admin\/sites\/brightsmile\/slots\/([a-z0-9_-]+)$/);
   if (slotMatch) return assignSlot(request, env, session, slotMatch[1]);
