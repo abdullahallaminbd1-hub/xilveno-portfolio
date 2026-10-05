@@ -207,7 +207,7 @@
 	/* ------------------------------------------------------------------ */
 	(function initReveal() {
 		var targets = doc.querySelectorAll(
-			'[data-reveal], .about-grid, .about-profile, .grid--skills, .service-block, .grid--process, .accordion, .case-content__grid, .contact-grid > *'
+			'[data-reveal], .hero__inner > *, .section-head, .about-grid, .about-profile, .grid--skills > *, .grid--services > *, .grid--problems > *, .grid--projects > *, .project-list > *, .service-block, .grid--process > *, .accordion__item, .case-hero .container > *, .case-lead, .case-content__grid > *, .contact-grid > *'
 		);
 
 		if (!targets.length) {
@@ -216,6 +216,8 @@
 
 		Array.prototype.forEach.call(targets, function (el) {
 			el.setAttribute('data-reveal', '');
+			var siblingIndex = Array.prototype.indexOf.call(el.parentElement.children, el);
+			el.style.setProperty('--reveal-delay', Math.min(siblingIndex, 4) * 65 + 'ms');
 		});
 
 		if (reduceMotion || !('IntersectionObserver' in window)) {
@@ -234,6 +236,14 @@
 		}, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
 
 		var reveal = function (el) {
+			var clearDelay = function (event) {
+				if (event.target === el && event.propertyName === 'transform') {
+					el.style.removeProperty('--reveal-delay');
+					el.classList.add('motion-settled');
+					el.removeEventListener('transitionend', clearDelay);
+				}
+			};
+			el.addEventListener('transitionend', clearDelay);
 			el.classList.add('is-visible');
 			observer.unobserve(el);
 		};
@@ -247,20 +257,28 @@
 			scheduled = true;
 			window.requestAnimationFrame(function () {
 				scheduled = false;
+				var skipped = [];
 				Array.prototype.forEach.call(targets, function (el) {
-					if (!el.classList.contains('is-visible') && el.getBoundingClientRect().bottom < 0) {
-						reveal(el);
+					if (!el.classList.contains('is-visible')) {
+						var rect = el.getBoundingClientRect();
+						if (rect.bottom < 0 || (rect.top < window.innerHeight && rect.bottom > 0)) {
+							skipped.push(el);
+						}
 					}
 				});
+				skipped.forEach(reveal);
 			});
 		};
 
-		Array.prototype.forEach.call(targets, function (el) {
-			observer.observe(el);
-		});
 		window.addEventListener('scroll', revealSkippedTargets, { passive: true });
 		window.addEventListener('resize', revealSkippedTargets);
-		window.requestAnimationFrame(revealSkippedTargets);
+		window.requestAnimationFrame(function () {
+			root.classList.add('motion-ready');
+			Array.prototype.forEach.call(targets, function (el) {
+				observer.observe(el);
+			});
+			revealSkippedTargets();
+		});
 	}());
 
 	/* ------------------------------------------------------------------ */

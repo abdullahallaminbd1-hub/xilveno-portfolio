@@ -136,6 +136,7 @@ a {
 	color: var(--abd-accent);
 	text-decoration-thickness: 1px;
 	text-underline-offset: 3px;
+	transition: color var(--abd-dur) var(--abd-ease), text-decoration-color var(--abd-dur) var(--abd-ease);
 }
 
 a:hover { color: var(--abd-accent-dark); }
@@ -225,6 +226,15 @@ button { background: none; border: 0; cursor: pointer; }
 		transition-duration: 0.01ms !important;
 		scroll-behavior: auto !important;
 	}
+	.js .site-main { animation: none !important; }
+	.btn:hover,
+	.btn:active,
+	.btn:hover .abd-icon,
+	.link-arrow:hover .abd-icon,
+	.card:hover,
+	.card:hover .card__icon,
+	.project-card:hover,
+	.project-card:hover .project-card__media img { transform: none !important; }
 }
 
 /* --------------------------------------------------------------------------
@@ -241,6 +251,13 @@ button { background: none; border: 0; cursor: pointer; }
 
 .site { display: flex; flex-direction: column; min-height: 100vh; }
 .site-main { flex: 1 0 auto; overflow-x: clip; }
+
+@keyframes abd-page-enter {
+	from { opacity: 0; transform: translateY(5px); }
+	to { opacity: 1; transform: none; }
+}
+
+.js .site-main { animation: abd-page-enter 280ms var(--abd-ease) both; }
 
 .section {
 	padding-block: var(--abd-section);
@@ -340,8 +357,8 @@ button { background: none; border: 0; cursor: pointer; }
 
 .btn .abd-icon { flex: none; transition: transform var(--abd-dur) var(--abd-ease); }
 
-.btn:hover { transform: translateY(-2px); }
-.btn:hover .abd-icon { transform: translateX(3px); }
+.btn:hover { transform: translateY(-1px); }
+.btn:hover .abd-icon { transform: translateX(2px); }
 .btn:active { transform: translateY(0); }
 
 .btn--primary {
@@ -394,6 +411,11 @@ button { background: none; border: 0; cursor: pointer; }
 
 .link-arrow .abd-icon { transition: transform var(--abd-dur) var(--abd-ease); }
 .link-arrow:hover .abd-icon { transform: translateX(3px); }
+
+@media (hover: none), (pointer: coarse) {
+	.btn:hover,
+	.btn:hover .abd-icon { transform: none; }
+}
 
 /* --------------------------------------------------------------------------
 7. Badges
