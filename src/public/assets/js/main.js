@@ -206,11 +206,17 @@
 	/* 5. Reveal on scroll.                                                */
 	/* ------------------------------------------------------------------ */
 	(function initReveal() {
-		var targets = doc.querySelectorAll('[data-reveal]');
+		var targets = doc.querySelectorAll(
+			'[data-reveal], .about-grid, .about-profile, .grid--skills, .service-block, .grid--process, .accordion, .case-content__grid, .contact-grid > *'
+		);
 
 		if (!targets.length) {
 			return;
 		}
+
+		Array.prototype.forEach.call(targets, function (el) {
+			el.setAttribute('data-reveal', '');
+		});
 
 		if (reduceMotion || !('IntersectionObserver' in window)) {
 			Array.prototype.forEach.call(targets, function (el) {
